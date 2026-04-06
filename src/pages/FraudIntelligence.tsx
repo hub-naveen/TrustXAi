@@ -44,6 +44,7 @@ import EntityFilterPanel, {
 import CaseLinkingPanel from "@/components/fraud-intel/CaseLinkingPanel";
 import MoneyFlowTimeline from "@/components/fraud-intel/MoneyFlowTimeline";
 import InvestigationReportGenerator from "@/components/fraud-intel/InvestigationReportGenerator";
+import VisualMetricStrip from "@/components/shared/VisualMetricStrip";
 
 const catColor: Record<string, string> = {
   "Transaction Layering": "bg-destructive/10 text-destructive",
@@ -446,6 +447,19 @@ export default function FraudIntelligence() {
     [sortedPathRisks],
   );
 
+  const investigationTrend = useMemo(
+    () =>
+      graphEdges
+        .slice()
+        .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+        .slice(-12)
+        .map((edge, index) => ({
+          label: `H${index + 1}`,
+          value: Math.max(1, Math.round(edge.amount / 100000)),
+        })),
+    [graphEdges],
+  );
+
   const updateCases = (caseIds: string[]) => {
     if (!caseIds.length) {
       const fallback = investigationCases[0]?.caseId;
@@ -502,6 +516,60 @@ export default function FraudIntelligence() {
           </p>
         </div>
       </div>
+
+      <SectionReveal>
+        <VisualMetricStrip
+          title="Investigation Intelligence Pulse"
+          subtitle="Layered case telemetry across spider maps, identity linking, and source to destination movement"
+          variant="investigation"
+          chartPlacement="right"
+          metrics={[
+            {
+              label: "Cases Active",
+              value: `${selectedCaseIds.length}`,
+              hint: "inter-case merge scope",
+              icon: Fingerprint,
+              tone: "primary",
+            },
+            {
+              label: "Graph Accounts",
+              value: `${graphNodes.length}`,
+              hint: bankAccountOnly ? "bank accounts only" : "all linked entities",
+              icon: Network,
+              tone: "accent",
+            },
+            {
+              label: "Money Hops",
+              value: `${graphEdges.length}`,
+              hint: "transaction trail edges",
+              icon: Link2,
+              tone: graphEdges.length > 12 ? "warning" : "primary",
+            },
+            {
+              label: "Identity Links",
+              value: `${linkedNodeIds.length}`,
+              hint: "linked by phone/IP/email",
+              icon: ScanSearch,
+              tone: linkedNodeIds.length > 6 ? "warning" : "success",
+            },
+            {
+              label: "Src -> Dest",
+              value: `${sourceAccountDetails.length} -> ${destinationAccountDetails.length}`,
+              hint: "investigation entry and exit",
+              icon: Target,
+              tone: "destructive",
+            },
+          ]}
+          chartData={investigationTrend}
+          chartLabel="Hop Value (x100k INR)"
+          chartColor="hsl(48, 96%, 53%)"
+          badges={[
+            investigationMode ? "Mode: INVESTIGATION" : "Mode: BANK",
+            bankAccountOnly ? "View: BANK ACCOUNTS" : "View: FULL GRAPH",
+            `Linked Identity Score: ${linkedIdentityScore}%`,
+          ]}
+        />
+      </SectionReveal>
 
       <SectionReveal>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

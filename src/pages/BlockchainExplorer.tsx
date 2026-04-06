@@ -2,12 +2,13 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Boxes, CheckCircle, Clock, Hash, Search, Copy, ExternalLink, Cpu, Database,
-  Shield, Activity, Radio, X, ChevronRight,
+  Shield, Activity, Radio, X, ChevronRight, Server,
 } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import SectionReveal from "@/components/shared/SectionReveal";
 import { blockchainEntries, type BlockchainEntry } from "@/data/mockData";
 import { useAnimatedCounter } from "@/hooks/useAnimatedCounter";
+import VisualMetricStrip from "@/components/shared/VisualMetricStrip";
 
 const actionColor: Record<string, string> = {
   STORE_FRAUD_DNA: "bg-primary/10 text-primary",
@@ -86,6 +87,24 @@ export default function BlockchainExplorer() {
     e.fraudDnaHash.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const confirmedCount = filteredEntries.filter((entry) => entry.status === "confirmed").length;
+  const pendingCount = filteredEntries.filter((entry) => entry.status === "pending").length;
+  const confirmationRate = filteredEntries.length
+    ? Math.round((confirmedCount / filteredEntries.length) * 100)
+    : 0;
+  const avgGasLive = Math.round(
+    filteredEntries.reduce((sum, entry) => sum + entry.gasUsed, 0) / Math.max(filteredEntries.length, 1),
+  );
+  const activeContractCount = smartContracts.filter((contract) => contract.status === "active").length;
+
+  const gasPulseData = filteredEntries
+    .slice(0, 12)
+    .reverse()
+    .map((entry, index) => ({
+      label: `B${index + 1}`,
+      value: Math.round(entry.gasUsed / 1000),
+    }));
+
   const copyHash = (hash: string) => {
     navigator.clipboard.writeText(hash);
     setCopiedHash(hash);
@@ -107,6 +126,53 @@ export default function BlockchainExplorer() {
           </button>
         </div>
       </div>
+
+      <SectionReveal>
+        <VisualMetricStrip
+          title="Chain Integrity Pulse"
+          subtitle="On-chain validation metrics for fraud signature anchoring and contract execution health"
+          variant="chain"
+          chartPlacement="right"
+          metrics={[
+            {
+              label: "Confirmation Rate",
+              value: `${confirmationRate}%`,
+              hint: "filtered chain events",
+              icon: CheckCircle,
+              tone: confirmationRate >= 85 ? "success" : "warning",
+            },
+            {
+              label: "Pending Queue",
+              value: `${pendingCount}`,
+              hint: "awaiting confirmations",
+              icon: Clock,
+              tone: pendingCount > 4 ? "warning" : "primary",
+            },
+            {
+              label: "Avg Gas",
+              value: `${avgGasLive.toLocaleString()}`,
+              hint: "gas used per event",
+              icon: Cpu,
+              tone: avgGasLive > 50000 ? "destructive" : "accent",
+            },
+            {
+              label: "Active Contracts",
+              value: `${activeContractCount}/${smartContracts.length}`,
+              hint: "deployed policy contracts",
+              icon: Server,
+              tone: "primary",
+            },
+          ]}
+          chartData={gasPulseData}
+          chartLabel="Gas (k)"
+          chartColor="hsl(210, 100%, 60%)"
+          badges={[
+            isLive ? "Chain Sync: LIVE" : "Chain Sync: PAUSED",
+            `Confirmed: ${confirmedCount}`,
+            `Filtered Events: ${filteredEntries.length}`,
+          ]}
+        />
+      </SectionReveal>
 
       {/* Stats */}
       <SectionReveal>

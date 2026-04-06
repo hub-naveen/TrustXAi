@@ -14,6 +14,7 @@ import { useAnimatedCounter } from "@/hooks/useAnimatedCounter";
 import { useLiveTransactions } from "@/hooks/useLiveTransactions";
 import AnomalyPulse from "@/components/dashboard/AnomalyPulse";
 import ThreatPredictor from "@/components/dashboard/ThreatPredictor";
+import VisualMetricStrip from "@/components/shared/VisualMetricStrip";
 
 const riskColor = (score: number) =>
   score >= 80 ? "text-destructive" : score >= 50 ? "text-warning" : "text-success";
@@ -63,6 +64,20 @@ function AnimatedStat({ icon: Icon, label, targetValue, displayValue, change, ch
 export default function Dashboard() {
   const { liveTxs, isLive, toggleLive } = useLiveTransactions(transactions, 3500);
 
+  const liveRiskAverage = Math.round(
+    liveTxs.reduce((total, tx) => total + tx.riskScore, 0) / Math.max(liveTxs.length, 1),
+  );
+  const liveBlockedCount = liveTxs.filter((tx) => tx.status === "blocked").length;
+  const liveHighRiskCount = liveTxs.filter((tx) => tx.riskScore >= 80).length;
+  const avgTicketSize = Math.round(
+    liveTxs.reduce((total, tx) => total + tx.amount, 0) / Math.max(liveTxs.length, 1),
+  );
+
+  const pulseTrend = liveTxs.slice(0, 10).reverse().map((tx, index) => ({
+    label: `T${index + 1}`,
+    value: tx.riskScore,
+  }));
+
   // Animated alert count
   const [alertPulse, setAlertPulse] = useState(false);
   useEffect(() => {
@@ -82,6 +97,53 @@ export default function Dashboard() {
           <span className="text-xs font-mono text-muted-foreground">{isLive ? "LIVE" : "PAUSED"}</span>
         </div>
       </div>
+
+      <SectionReveal>
+        <VisualMetricStrip
+          title="Live Operations Pulse"
+          subtitle="High-frequency platform telemetry for fraud response and transaction surveillance"
+          variant="pulse"
+          chartPlacement="right"
+          metrics={[
+            {
+              label: "Live Risk Avg",
+              value: `${liveRiskAverage}`,
+              hint: "last 10 streamed txns",
+              icon: Activity,
+              tone: liveRiskAverage >= 75 ? "warning" : "primary",
+            },
+            {
+              label: "Blocked In Feed",
+              value: `${liveBlockedCount}`,
+              hint: "active rolling window",
+              icon: ShieldAlert,
+              tone: liveBlockedCount > 4 ? "destructive" : "success",
+            },
+            {
+              label: "High Risk Active",
+              value: `${liveHighRiskCount}`,
+              hint: "risk score >= 80",
+              icon: AlertTriangle,
+              tone: liveHighRiskCount > 5 ? "destructive" : "warning",
+            },
+            {
+              label: "Avg Ticket",
+              value: `Rs ${avgTicketSize.toLocaleString()}`,
+              hint: "real-time ticket size",
+              icon: Zap,
+              tone: "accent",
+            },
+          ]}
+          chartData={pulseTrend}
+          chartLabel="Risk Volatility"
+          chartColor="hsl(210, 100%, 60%)"
+          badges={[
+            isLive ? "Stream Status: LIVE" : "Stream Status: PAUSED",
+            `Alerts Open: ${alerts.length}`,
+            "Model v3.2.1",
+          ]}
+        />
+      </SectionReveal>
 
       {/* Animated Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

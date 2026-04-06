@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { institutions } from "@/data/mockData";
 import { useAuth } from "@/contexts/AuthContext";
+import VisualMetricStrip from "@/components/shared/VisualMetricStrip";
 
 const trustColor = (score: number) => {
   if (score >= 95) return "text-success";
@@ -62,6 +63,22 @@ export default function Admin() {
   const [expandedInst, setExpandedInst] = useState<string | null>(null);
   const [liveAlertCount, setLiveAlertCount] = useState(threatFeed.length);
 
+  const activeInstitutionCount = institutions.filter((inst) => inst.status === "active").length;
+  const averageTrust = Math.round(
+    institutions.reduce((sum, inst) => sum + inst.trustScore, 0) / Math.max(institutions.length, 1),
+  );
+  const highSeverityAudits = auditLogs.filter((log) => log.severity === "high").length;
+  const criticalThreatCount = threatFeed.filter((threat) => threat.severity === "critical").length;
+  const totalInstitutionNodes = institutions.reduce((sum, inst) => sum + inst.nodesCount, 0);
+
+  const governanceTrend = auditLogs
+    .slice(0, 10)
+    .reverse()
+    .map((log, index) => ({
+      label: `E${index + 1}`,
+      value: log.severity === "high" ? 95 : log.severity === "medium" ? 72 : 48,
+    }));
+
   useEffect(() => {
     const id = setInterval(() => {
       setLiveAlertCount((c) => c + (Math.random() > 0.7 ? 1 : 0));
@@ -88,6 +105,60 @@ export default function Admin() {
           Logged in as <span className="text-primary font-semibold">{user?.role}</span>
         </div>
       </div>
+
+      <SectionReveal>
+        <VisualMetricStrip
+          title="Governance Pulse"
+          subtitle="Administrative visibility across institutions, audits, and live threat pressure"
+          variant="governance"
+          chartPlacement="right"
+          metrics={[
+            {
+              label: "Active Institutions",
+              value: `${activeInstitutionCount}/${institutions.length}`,
+              hint: "federated institutions online",
+              icon: Building2,
+              tone: "success",
+            },
+            {
+              label: "Average Trust",
+              value: `${averageTrust}`,
+              hint: "institution trust baseline",
+              icon: Shield,
+              tone: averageTrust >= 92 ? "success" : "warning",
+            },
+            {
+              label: "High Audit Events",
+              value: `${highSeverityAudits}`,
+              hint: "high severity log actions",
+              icon: FileText,
+              tone: highSeverityAudits > 4 ? "destructive" : "warning",
+            },
+            {
+              label: "Critical Threats",
+              value: `${criticalThreatCount}`,
+              hint: "current threat feed",
+              icon: AlertTriangle,
+              tone: criticalThreatCount > 1 ? "destructive" : "warning",
+            },
+            {
+              label: "Total Nodes",
+              value: `${totalInstitutionNodes}`,
+              hint: "institution infrastructure",
+              icon: Server,
+              tone: "accent",
+            },
+          ]}
+          chartData={governanceTrend}
+          chartLabel="Severity Signal"
+          chartColor="hsl(0, 72%, 51%)"
+          badges={[
+            `Live Alerts: ${liveAlertCount}`,
+            "RLS Enforcement: ACTIVE",
+            "Audit Trail: IMMUTABLE",
+          ]}
+        />
+      </SectionReveal>
 
       {/* System Status Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

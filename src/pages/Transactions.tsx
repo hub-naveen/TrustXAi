@@ -10,6 +10,7 @@ import {
 import SectionReveal from "@/components/shared/SectionReveal";
 import { transactions, type Transaction } from "@/data/mockData";
 import { useAnimatedCounter } from "@/hooks/useAnimatedCounter";
+import VisualMetricStrip from "@/components/shared/VisualMetricStrip";
 
 const riskColor = (s: number) => s >= 80 ? "text-destructive" : s >= 50 ? "text-warning" : "text-success";
 const riskBg = (s: number) => s >= 80 ? "bg-destructive" : s >= 50 ? "bg-warning" : "bg-success";
@@ -101,6 +102,37 @@ export default function Transactions() {
     count: extendedTxs.filter(t => t.type === type).length,
   }));
 
+  const suspiciousValue = filtered
+    .filter((tx) => tx.riskScore >= 80)
+    .reduce((sum, tx) => sum + tx.amount, 0);
+
+  const filteredAvgTicket = Math.round(
+    filtered.reduce((sum, tx) => sum + tx.amount, 0) / Math.max(filtered.length, 1),
+  );
+
+  const highRiskRatio = filtered.length
+    ? Math.round((filtered.filter((tx) => tx.riskScore >= 80).length / filtered.length) * 100)
+    : 0;
+
+  const newestTs = filtered.length
+    ? Math.max(...filtered.map((tx) => new Date(tx.timestamp).getTime()))
+    : Date.now();
+  const velocityWindowStart = newestTs - 30 * 60 * 1000;
+  const velocityCount = filtered.filter(
+    (tx) => new Date(tx.timestamp).getTime() >= velocityWindowStart,
+  ).length;
+
+  const riskTrendData = useMemo(() => {
+    return filtered
+      .slice()
+      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+      .slice(-12)
+      .map((tx, index) => ({
+        label: `P${index + 1}`,
+        value: tx.riskScore,
+      }));
+  }, [filtered]);
+
   const handleExport = () => {
     const csv = ["ID,From,To,Amount,Risk,Status,Type,Timestamp"]
       .concat(filtered.map(t => `${t.id},${t.from},${t.to},${t.amount},${t.riskScore},${t.status},${t.type},${t.timestamp}`))
@@ -123,6 +155,53 @@ export default function Transactions() {
           <Download className="w-3.5 h-3.5" /> Export CSV
         </button>
       </div>
+
+      <SectionReveal>
+        <VisualMetricStrip
+          title="Transaction Velocity Lens"
+          subtitle="Visual risk telemetry and movement metrics for the active filtered transaction set"
+          variant="risk"
+          chartPlacement="left"
+          metrics={[
+            {
+              label: "Suspicious Value",
+              value: `Rs ${suspiciousValue.toLocaleString()}`,
+              hint: "risk score >= 80",
+              icon: ShieldAlert,
+              tone: suspiciousValue > 1000000 ? "destructive" : "warning",
+            },
+            {
+              label: "Velocity 30m",
+              value: `${velocityCount}`,
+              hint: "transactions in rolling 30m",
+              icon: Clock,
+              tone: velocityCount > 5 ? "warning" : "success",
+            },
+            {
+              label: "High Risk Ratio",
+              value: `${highRiskRatio}%`,
+              hint: "share of active filter",
+              icon: TrendingUp,
+              tone: highRiskRatio >= 40 ? "destructive" : "primary",
+            },
+            {
+              label: "Avg Ticket",
+              value: `Rs ${filteredAvgTicket.toLocaleString()}`,
+              hint: "filtered average amount",
+              icon: CheckCircle2,
+              tone: "accent",
+            },
+          ]}
+          chartData={riskTrendData}
+          chartLabel="Risk Path"
+          chartColor="hsl(48, 96%, 53%)"
+          badges={[
+            `Filtered Rows: ${filtered.length}`,
+            `Status Filter: ${statusFilter}`,
+            `Type Filter: ${typeFilter}`,
+          ]}
+        />
+      </SectionReveal>
 
       {/* Stats Row */}
       <SectionReveal>
