@@ -1,13 +1,23 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 
+export type UserRole = "admin" | "analyst" | "viewer";
+
 export interface User {
   id: string;
   email: string;
   name: string;
   institution: string;
-  role: "admin" | "analyst" | "viewer";
+  role: UserRole;
   avatar: string;
 }
+
+export const ROLE_DASHBOARD_ROUTE: Record<UserRole, string> = {
+  admin: "/dashboard/admin",
+  analyst: "/dashboard/analyst",
+  viewer: "/dashboard/viewer",
+};
+
+export const getDashboardRouteForRole = (role: UserRole) => ROLE_DASHBOARD_ROUTE[role];
 
 const DEMO_USERS: Record<string, User> = {
   "admin@rbi.gov.in": {
@@ -39,7 +49,7 @@ const DEMO_USERS: Record<string, User> = {
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
-  login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  login: (email: string, password: string) => Promise<{ success: boolean; error?: string; user?: User }>;
   logout: () => void;
   demoUsers: typeof DEMO_USERS;
 }
@@ -56,13 +66,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const login = async (email: string, _password: string): Promise<{ success: boolean; error?: string }> => {
+  const login = async (email: string, _password: string): Promise<{ success: boolean; error?: string; user?: User }> => {
     await new Promise((r) => setTimeout(r, 800));
     const found = DEMO_USERS[email.toLowerCase()];
     if (!found) return { success: false, error: "Institution not found. Use a demo account." };
     setUser(found);
     localStorage.setItem("tc_user", JSON.stringify(found));
-    return { success: true };
+    return { success: true, user: found };
   };
 
   const logout = () => {

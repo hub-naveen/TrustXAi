@@ -8,6 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import VisualMetricStrip from "@/components/shared/VisualMetricStrip";
 
 interface ApiKey {
   id: string;
@@ -45,6 +46,23 @@ export default function Settings() {
   const [revealedKeys, setRevealedKeys] = useState<Set<string>>(new Set());
   const [newKeyName, setNewKeyName] = useState("");
   const [selectedAccent, setSelectedAccent] = useState(0);
+
+  const enabledNotifications = Object.values(notifications).filter(Boolean).length;
+  const securityCoverage = Math.round((enabledNotifications / Object.keys(notifications).length) * 100);
+  const visibleKeyCount = revealedKeys.size;
+  const activeKeyCount = apiKeys.length;
+  const recentlyUsedKeyCount = apiKeys.filter((key) => key.lastUsed !== "Never").length;
+
+  const settingsPulse = [
+    { label: "N1", value: enabledNotifications },
+    { label: "N2", value: activeKeyCount + 2 },
+    { label: "N3", value: securityCoverage / 10 },
+    { label: "N4", value: recentlyUsedKeyCount + 1 },
+    { label: "N5", value: enabledNotifications - 1 },
+    { label: "N6", value: activeKeyCount + 3 },
+    { label: "N7", value: securityCoverage / 10 + 1 },
+    { label: "N8", value: enabledNotifications },
+  ];
 
   const toggleNotification = (key: keyof typeof notifications) => {
     setNotifications((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -103,6 +121,60 @@ export default function Settings() {
         <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
         <p className="text-sm text-muted-foreground mt-1">Manage notifications, API keys, and appearance</p>
       </div>
+
+      <SectionReveal>
+        <VisualMetricStrip
+          title="Configuration Health"
+          subtitle="Operational settings posture across alerting, API controls, and interface security"
+          variant="settings"
+          chartPlacement="left"
+          metrics={[
+            {
+              label: "Alerts Enabled",
+              value: `${enabledNotifications}/${Object.keys(notifications).length}`,
+              hint: "notification channels active",
+              icon: Bell,
+              tone: "primary",
+            },
+            {
+              label: "Security Coverage",
+              value: `${securityCoverage}%`,
+              hint: "based on enabled controls",
+              icon: Check,
+              tone: securityCoverage >= 75 ? "success" : "warning",
+            },
+            {
+              label: "API Keys Active",
+              value: `${activeKeyCount}`,
+              hint: "current API credentials",
+              icon: Key,
+              tone: activeKeyCount > 3 ? "warning" : "accent",
+            },
+            {
+              label: "Exposed In UI",
+              value: `${visibleKeyCount}`,
+              hint: "currently revealed keys",
+              icon: Eye,
+              tone: visibleKeyCount > 0 ? "destructive" : "success",
+            },
+            {
+              label: "Recent Usage",
+              value: `${recentlyUsedKeyCount}`,
+              hint: "keys used recently",
+              icon: RefreshCw,
+              tone: "primary",
+            },
+          ]}
+          chartData={settingsPulse}
+          chartLabel="Config Activity"
+          chartColor="hsl(142, 72%, 45%)"
+          badges={[
+            `Accent: ${accentOptions[selectedAccent]?.name ?? "Gold"}`,
+            "Auth Guard: ENABLED",
+            "Session Controls: ACTIVE",
+          ]}
+        />
+      </SectionReveal>
 
       <div className="grid lg:grid-cols-2 gap-6">
         {/* Notifications */}

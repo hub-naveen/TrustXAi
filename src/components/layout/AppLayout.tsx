@@ -13,16 +13,16 @@ import {
   Settings,
   LogOut,
 } from "lucide-react";
-import { useAuth } from "@/contexts/AuthContext";
+import { getDashboardRouteForRole, type UserRole, useAuth } from "@/contexts/AuthContext";
 
 const navItems = [
-  { path: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { path: "/transactions", label: "Transactions", icon: ArrowLeftRight },
-  { path: "/fraud-intelligence", label: "Fraud Intel", icon: Fingerprint },
-  { path: "/blockchain", label: "Blockchain", icon: Boxes },
-  { path: "/federated-learning", label: "Fed. Learning", icon: BrainCircuit },
-  { path: "/admin", label: "Admin", icon: Shield },
-  { path: "/settings", label: "Settings", icon: Settings },
+  { path: "/dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["admin", "analyst", "viewer"] as UserRole[], activePrefix: "/dashboard" },
+  { path: "/transactions", label: "Transactions", icon: ArrowLeftRight, roles: ["admin", "analyst", "viewer"] as UserRole[] },
+  { path: "/fraud-intelligence", label: "Fraud Intel", icon: Fingerprint, roles: ["admin", "analyst"] as UserRole[] },
+  { path: "/blockchain", label: "Blockchain", icon: Boxes, roles: ["admin", "analyst", "viewer"] as UserRole[] },
+  { path: "/federated-learning", label: "Fed. Learning", icon: BrainCircuit, roles: ["admin", "analyst"] as UserRole[] },
+  { path: "/admin", label: "Admin", icon: Shield, roles: ["admin"] as UserRole[] },
+  { path: "/settings", label: "Settings", icon: Settings, roles: ["admin", "analyst"] as UserRole[] },
 ];
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -31,6 +31,18 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [demoMode, setDemoMode] = useState(true);
+
+  const visibleNavItems = navItems.filter((item) => !user || item.roles.includes(user.role));
+
+  const navTarget = (path: string) => {
+    if (path === "/dashboard" && user) return getDashboardRouteForRole(user.role);
+    return path;
+  };
+
+  const isNavActive = (path: string, activePrefix?: string) => {
+    if (activePrefix) return location.pathname.startsWith(activePrefix);
+    return location.pathname === path;
+  };
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
@@ -51,12 +63,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </Link>
 
         <nav className="flex-1 px-3 py-4 space-y-1">
-          {navItems.map((item) => {
-            const isActive = location.pathname === item.path;
+          {visibleNavItems.map((item) => {
+            const isActive = isNavActive(item.path, item.activePrefix);
             return (
               <Link
                 key={item.path}
-                to={item.path}
+                to={navTarget(item.path)}
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 group ${
                   isActive
                     ? "bg-primary/10 text-primary"
@@ -133,12 +145,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 </button>
               </div>
               <nav className="px-3 py-4 space-y-1">
-                {navItems.map((item) => {
-                  const isActive = location.pathname === item.path;
+                {visibleNavItems.map((item) => {
+                  const isActive = isNavActive(item.path, item.activePrefix);
                   return (
                     <Link
                       key={item.path}
-                      to={item.path}
+                      to={navTarget(item.path)}
                       onClick={() => setSidebarOpen(false)}
                       className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                         isActive

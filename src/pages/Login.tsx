@@ -1,13 +1,23 @@
 import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import { ArrowRight, Eye, EyeOff, Building2, ShieldCheck, Loader2 } from "lucide-react";
-import { useAuth } from "@/contexts/AuthContext";
+import { ArrowRight, Eye, EyeOff, Building2, ShieldCheck, Loader2, Radar, Activity } from "lucide-react";
+import { getDashboardRouteForRole, useAuth } from "@/contexts/AuthContext";
+import VisualMetricStrip from "@/components/shared/VisualMetricStrip";
 
 const DEMO_ACCOUNTS = [
   { email: "admin@rbi.gov.in", role: "Admin", institution: "RBI CFMC" },
   { email: "analyst@sbi.co.in", role: "Analyst", institution: "State Bank of India" },
   { email: "viewer@hdfc.com", role: "Viewer", institution: "HDFC Bank" },
+];
+
+const authPulseTrend = [
+  { label: "T1", value: 84 },
+  { label: "T2", value: 87 },
+  { label: "T3", value: 89 },
+  { label: "T4", value: 92 },
+  { label: "T5", value: 94 },
+  { label: "T6", value: 96 },
 ];
 
 export default function Login() {
@@ -25,7 +35,8 @@ export default function Login() {
     setLoading(true);
     const result = await login(email, password);
     setLoading(false);
-    if (result.success) navigate("/dashboard");
+    if (result.success && result.user) navigate(getDashboardRouteForRole(result.user.role));
+    else if (result.success) navigate("/dashboard");
     else setError(result.error || "Login failed");
   };
 
@@ -36,7 +47,8 @@ export default function Login() {
     setLoading(true);
     const result = await login(demoEmail, "demo1234");
     setLoading(false);
-    if (result.success) navigate("/dashboard");
+    if (result.success && result.user) navigate(getDashboardRouteForRole(result.user.role));
+    else if (result.success) navigate("/dashboard");
   };
 
   return (
@@ -89,6 +101,53 @@ export default function Login() {
                 <p className="text-[10px] text-muted-foreground uppercase tracking-wider mt-0.5">{s.label}</p>
               </div>
             ))}
+          </div>
+
+          <div className="mt-8 max-w-2xl">
+            <VisualMetricStrip
+              title="Identity Access Telemetry"
+              subtitle="Real-time authentication assurance across connected institutions"
+              variant="auth"
+              chartPlacement="right"
+              metrics={[
+                {
+                  label: "MFA Coverage",
+                  value: "98.6%",
+                  hint: "institution accounts with MFA",
+                  icon: ShieldCheck,
+                  tone: "success",
+                },
+                {
+                  label: "Auth Latency",
+                  value: "148ms",
+                  hint: "median sign-in validation",
+                  icon: Activity,
+                  tone: "primary",
+                },
+                {
+                  label: "Node Reach",
+                  value: "312",
+                  hint: "live institution endpoints",
+                  icon: Building2,
+                  tone: "accent",
+                },
+                {
+                  label: "Threat Blocks",
+                  value: "27/day",
+                  hint: "credential abuse prevented",
+                  icon: Radar,
+                  tone: "warning",
+                },
+              ]}
+              chartData={authPulseTrend}
+              chartLabel="Access Confidence"
+              chartColor="hsl(48, 96%, 53%)"
+              badges={[
+                "State: SECURE SIGN-IN",
+                "Policy: RBI COMPLIANT",
+                "Demo: SANDBOX ACCOUNTS",
+              ]}
+            />
           </div>
         </motion.div>
 

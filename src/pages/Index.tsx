@@ -10,8 +10,13 @@ import {
   Bell,
   Network,
   ChevronRight,
+  Radar,
+  Activity,
+  Wallet,
+  Landmark,
 } from "lucide-react";
 import SectionReveal from "@/components/shared/SectionReveal";
+import VisualMetricStrip from "@/components/shared/VisualMetricStrip";
 
 const features = [
   {
@@ -51,6 +56,15 @@ const stats = [
   { value: "<200ms", label: "Response Time" },
   { value: "312", label: "Active Nodes" },
   { value: "₹4.2Cr", label: "Fraud Prevented Today" },
+];
+
+const readinessTrend = [
+  { label: "W1", value: 78 },
+  { label: "W2", value: 82 },
+  { label: "W3", value: 86 },
+  { label: "W4", value: 89 },
+  { label: "W5", value: 92 },
+  { label: "W6", value: 95 },
 ];
 
 export default function LandingPage() {
@@ -179,6 +193,57 @@ export default function LandingPage() {
             />
           </div>
         </motion.div>
+      </section>
+
+      <section className="px-6 pb-12">
+        <div className="max-w-5xl mx-auto">
+          <SectionReveal>
+            <VisualMetricStrip
+              title="Trust Network Readiness"
+              subtitle="Operational confidence indicators across onboarding institutions and intelligence lanes"
+              variant="landing"
+              chartPlacement="left"
+              metrics={[
+                {
+                  label: "Institutions Live",
+                  value: "312",
+                  hint: "connected member banks",
+                  icon: Landmark,
+                  tone: "primary",
+                },
+                {
+                  label: "Alert Throughput",
+                  value: "14.7k/day",
+                  hint: "cross-node signal ingestion",
+                  icon: Radar,
+                  tone: "accent",
+                },
+                {
+                  label: "Protected Value",
+                  value: "₹4.2Cr",
+                  hint: "daily blocked fraud attempts",
+                  icon: Wallet,
+                  tone: "success",
+                },
+                {
+                  label: "Model Drift",
+                  value: "1.8%",
+                  hint: "within safe adaptation band",
+                  icon: Activity,
+                  tone: "warning",
+                },
+              ]}
+              chartData={readinessTrend}
+              chartLabel="Readiness Score"
+              chartColor="hsl(48, 96%, 53%)"
+              badges={[
+                "State: LIVE NETWORK",
+                "Coverage: PAN-INDIA",
+                "Mode: FRAUD IMMUNITY",
+              ]}
+            />
+          </SectionReveal>
+        </div>
       </section>
 
       {/* Stats */}

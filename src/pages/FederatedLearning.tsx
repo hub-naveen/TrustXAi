@@ -13,6 +13,7 @@ import SectionReveal from "@/components/shared/SectionReveal";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { modelUpdates, institutions } from "@/data/mockData";
+import VisualMetricStrip from "@/components/shared/VisualMetricStrip";
 
 const statusIcon: Record<string, JSX.Element> = {
   merged: <CheckCircle className="w-4 h-4 text-success" />,
@@ -65,6 +66,19 @@ export default function FederatedLearning() {
   const [currentRound, setCurrentRound] = useState(0);
   const [trainingLog, setTrainingLog] = useState<string[]>([]);
 
+  const currentConvergence = convergenceData[Math.max(0, Math.min(currentRound - 1, convergenceData.length - 1))] ?? convergenceData[0];
+  const privacyStrength = Math.round(
+    privacyMetrics.reduce((sum, metric) => sum + metric.value, 0) / Math.max(privacyMetrics.length, 1),
+  );
+  const onlineNodeCount = institutions.filter((inst) => inst.status === "active").length;
+
+  const federationTrend = convergenceData
+    .slice(0, Math.max(currentRound, 8))
+    .map((entry) => ({
+      label: `R${entry.round}`,
+      value: entry.accuracy,
+    }));
+
   useEffect(() => {
     if (!isTraining) return;
     if (currentRound >= 20) {
@@ -111,6 +125,60 @@ export default function FederatedLearning() {
           </button>
         </div>
       </div>
+
+      <SectionReveal>
+        <VisualMetricStrip
+          title="Federation Telemetry"
+          subtitle="Cross-institution model training health, privacy posture, and convergence stability"
+          variant="federation"
+          chartPlacement="left"
+          metrics={[
+            {
+              label: "Current Round",
+              value: `${currentRound}/20`,
+              hint: isTraining ? "training in progress" : "training idle",
+              icon: BrainCircuit,
+              tone: isTraining ? "primary" : "accent",
+            },
+            {
+              label: "Global Accuracy",
+              value: `${currentConvergence.accuracy}%`,
+              hint: "federated global model",
+              icon: TrendingUp,
+              tone: currentConvergence.accuracy >= 96 ? "success" : "warning",
+            },
+            {
+              label: "Global Loss",
+              value: `${currentConvergence.globalLoss}`,
+              hint: "lower is better",
+              icon: Cpu,
+              tone: currentConvergence.globalLoss <= 0.4 ? "success" : "warning",
+            },
+            {
+              label: "Privacy Strength",
+              value: `${privacyStrength}%`,
+              hint: "composite privacy controls",
+              icon: Lock,
+              tone: privacyStrength >= 80 ? "success" : "warning",
+            },
+            {
+              label: "Online Nodes",
+              value: `${onlineNodeCount}/${institutions.length}`,
+              hint: "active participating institutions",
+              icon: Server,
+              tone: "accent",
+            },
+          ]}
+          chartData={federationTrend}
+          chartLabel="Accuracy Trajectory"
+          chartColor="hsl(48, 96%, 53%)"
+          badges={[
+            isTraining ? "Trainer State: RUNNING" : "Trainer State: PAUSED",
+            "Secure Aggregation: ON",
+            "Differential Privacy: ENFORCED",
+          ]}
+        />
+      </SectionReveal>
 
       {/* Training Progress Bar */}
       <SectionReveal>
