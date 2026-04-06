@@ -209,6 +209,14 @@ export default function MoneyFlowVisualizer({
     return [...baseGraph.nodes].sort((left, right) => right.riskScore - left.riskScore)[0]?.id ?? null;
   }, [baseGraph.nodes]);
 
+  const mostConnectedNode = useMemo(() => {
+    return [...baseGraph.nodes].sort((left, right) => right.counterpartyCount - left.counterpartyCount)[0]?.id ?? null;
+  }, [baseGraph.nodes]);
+
+  const highestVolumeNode = useMemo(() => {
+    return [...baseGraph.nodes].sort((left, right) => right.totalAmount - left.totalAmount)[0]?.id ?? null;
+  }, [baseGraph.nodes]);
+
   useEffect(() => {
     if (!focusNodeId && highestRiskNode) {
       setFocusNodeId(highestRiskNode);
@@ -384,6 +392,33 @@ export default function MoneyFlowVisualizer({
     };
   }, [visibleGraph.links, visibleGraph.nodes]);
 
+  const focusedNode = useMemo(() => {
+    if (!focusNodeId) {
+      return null;
+    }
+    return baseGraph.nodes.find((node) => node.id === focusNodeId) ?? null;
+  }, [baseGraph.nodes, focusNodeId]);
+
+  const focusedNodeConnections = useMemo(() => {
+    if (!focusNodeId) {
+      return [] as MoneyFlowLink[];
+    }
+
+    return baseGraph.links
+      .filter((link) => {
+        const source = resolveNodeId(link.source);
+        const target = resolveNodeId(link.target);
+        return source === focusNodeId || target === focusNodeId;
+      })
+      .sort((left, right) => {
+        if (right.avgRisk !== left.avgRisk) {
+          return right.avgRisk - left.avgRisk;
+        }
+        return right.totalAmount - left.totalAmount;
+      })
+      .slice(0, 4);
+  }, [baseGraph.links, focusNodeId]);
+
   const layeredPaths = useMemo(() => {
     if (!focusNodeId) {
       return [] as LayeredPath[];
@@ -492,6 +527,15 @@ export default function MoneyFlowVisualizer({
     setDepthLimit((current) => clampDepth(current + 1));
   };
 
+  const applyFocusPreset = (nextFocus: string | null) => {
+    if (!nextFocus) {
+      return;
+    }
+    setFocusNodeId(nextFocus);
+    setDepthLimit(1);
+    setHoverNodeId(null);
+  };
+
   const resetFocus = () => {
     setFocusNodeId(highestRiskNode);
     setDepthLimit(1);
@@ -509,7 +553,7 @@ export default function MoneyFlowVisualizer({
   };
 
   return (
-    <div className={cn("rounded-xl border border-warning/25 bg-[#070b12] p-4", className)}>
+    <div className={cn("rounded-xl border border-warning/25 bg-[#070b12] p-4 overflow-hidden", className)}>
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
         <div>
           <h3 className="text-sm font-semibold text-warning">Money Flow Visualizer</h3>
@@ -536,6 +580,31 @@ export default function MoneyFlowVisualizer({
             <RotateCcw className="w-3 h-3" /> Reset
           </button>
         </div>
+      </div>
+
+      <div className="mb-3 flex flex-wrap items-center gap-2 text-[10px]">
+        <span className="text-muted-foreground mr-1">Quick focus:</span>
+        <button
+          type="button"
+          onClick={() => applyFocusPreset(highestRiskNode)}
+          className="px-2 py-1 rounded-full bg-secondary/80 hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+        >
+          Highest risk
+        </button>
+        <button
+          type="button"
+          onClick={() => applyFocusPreset(mostConnectedNode)}
+          className="px-2 py-1 rounded-full bg-secondary/80 hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+        >
+          Most connected
+        </button>
+        <button
+          type="button"
+          onClick={() => applyFocusPreset(highestVolumeNode)}
+          className="px-2 py-1 rounded-full bg-secondary/80 hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+        >
+          Highest volume
+        </button>
       </div>
 
       <div className="mb-3 flex flex-col md:flex-row md:items-center md:justify-between gap-2">
@@ -594,7 +663,7 @@ export default function MoneyFlowVisualizer({
         </div>
       </div>
 
-      <div className="h-[420px] rounded-lg border border-warning/20 bg-[#02050b]">
+      <div className="h-[420px] rounded-lg border border-warning/20 bg-[#02050b] relative overflow-hidden isolate">
         <ForceGraph2D
           ref={graphRef}
           graphData={visibleGraph}
@@ -685,11 +754,91 @@ export default function MoneyFlowVisualizer({
             setHoverNodeId(nodeId || null);
           }}
           onBackgroundClick={() => setHoverNodeId(null)}
+          onEngineTick={() => {
+            const graph = graphRef.current;
+            if (!graph) {
+              return;
+            }
+
+            const width = typeof graph.width === "function" ? graph.width() : 0;
+            const height = typeof graph.height === "function" ? graph.height() : 0;
+            if (!width || !height) {
+              return;
+            }
+
+            const margin = 18;
+            for (const node of visibleGraph.nodes as unknown as Array<NodeObject<MoneyFlowNode>>) {
+              if (typeof node.x !== "number" || typeof node.y !== "number") {
+                continue;
+              }
+
+              if (node.x < margin) {
+                node.x = margin;
+                node.vx = 0;
+              } else if (node.x > width - margin) {
+                node.x = width - margin;
+                node.vx = 0;
+              }
+
+              if (node.y < margin) {
+                node.y = margin;
+                node.vy = 0;
+              } else if (node.y > height - margin) {
+                node.y = height - margin;
+                node.vy = 0;
+              }
+            }
+          }}
           showPointerCursor
           cooldownTicks={120}
           d3AlphaDecay={0.03}
         />
       </div>
+
+      {focusedNode ? (
+        <div className="mt-3 rounded-lg border border-warning/15 bg-secondary/20 px-3 py-2">
+          <p className="text-[11px] font-semibold">Focused Account Summary</p>
+          <div className="mt-2 grid grid-cols-2 xl:grid-cols-5 gap-2 text-[10px] text-muted-foreground">
+            <p>
+              Account
+              <span className="block text-foreground font-semibold mt-0.5 truncate">{focusedNode.accountId}</span>
+            </p>
+            <p>
+              Risk score
+              <span className="block text-foreground font-semibold mt-0.5">{focusedNode.riskScore}</span>
+            </p>
+            <p>
+              Total amount
+              <span className="block text-foreground font-semibold mt-0.5">{toCurrency(focusedNode.totalAmount)}</span>
+            </p>
+            <p>
+              Blocked / Flagged
+              <span className="block text-foreground font-semibold mt-0.5">{focusedNode.blockedCount} / {focusedNode.flaggedCount}</span>
+            </p>
+            <p>
+              Counterparties
+              <span className="block text-foreground font-semibold mt-0.5">{focusedNode.counterpartyCount}</span>
+            </p>
+          </div>
+
+          <div className="mt-2 space-y-1 max-h-20 overflow-y-auto pr-1">
+            {focusedNodeConnections.length ? (
+              focusedNodeConnections.map((link) => {
+                const source = resolveNodeId(link.source);
+                const target = resolveNodeId(link.target);
+                const counterparty = source === focusNodeId ? target : source;
+                return (
+                  <p key={link.id} className="text-[10px] text-muted-foreground">
+                    {counterparty} | {toCurrency(link.totalAmount)} | avg risk {Math.round(link.avgRisk)} | {link.txCount} tx
+                  </p>
+                );
+              })
+            ) : (
+              <p className="text-[10px] text-muted-foreground">No direct counterparty connections in current graph.</p>
+            )}
+          </div>
+        </div>
+      ) : null}
 
       <div className="mt-3 grid xl:grid-cols-2 gap-3">
         <div className="rounded-lg border border-warning/15 bg-secondary/20 px-3 py-2">

@@ -12,6 +12,8 @@ import AnalystDashboard from "./pages/AnalystDashboard";
 import ViewerDashboard from "./pages/ViewerDashboard";
 import Transactions from "./pages/Transactions";
 import FraudIntelligence from "./pages/FraudIntelligence";
+import Alerts from "./pages/Alerts";
+import Reports from "./pages/Reports";
 import BlockchainExplorer from "./pages/BlockchainExplorer";
 import FederatedLearning from "./pages/FederatedLearning";
 import Admin from "./pages/Admin";
@@ -49,6 +51,8 @@ const App = () => (
             <Route path="/dashboard/viewer" element={<ProtectedPage allowedRoles={["viewer"]}><ViewerDashboard /></ProtectedPage>} />
             <Route path="/transactions" element={<ProtectedPage allowedRoles={["admin", "analyst", "viewer"]}><Transactions /></ProtectedPage>} />
             <Route path="/fraud-intelligence" element={<ProtectedPage allowedRoles={["admin", "analyst"]}><FraudIntelligence /></ProtectedPage>} />
+            <Route path="/alerts" element={<ProtectedPage allowedRoles={["admin", "analyst"]}><Alerts /></ProtectedPage>} />
+            <Route path="/reports" element={<ProtectedPage allowedRoles={["admin", "analyst"]}><Reports /></ProtectedPage>} />
             <Route path="/blockchain" element={<ProtectedPage allowedRoles={["admin", "analyst", "viewer"]}><BlockchainExplorer /></ProtectedPage>} />
             <Route path="/federated-learning" element={<ProtectedPage allowedRoles={["admin", "analyst"]}><FederatedLearning /></ProtectedPage>} />
             <Route path="/admin" element={<ProtectedPage allowedRoles={["admin"]}><Admin /></ProtectedPage>} />
