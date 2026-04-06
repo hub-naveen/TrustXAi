@@ -32,8 +32,17 @@ interface LayeredPath {
   key: string;
   hops: number;
   path: string[];
+  flow: string;
   totalAmount: number;
   averageRisk: number;
+}
+
+type FlowDirection = "outbound" | "inbound" | "bidirectional";
+
+interface TraversalEdge {
+  next: string;
+  link: MoneyFlowLink;
+  direction: "outbound" | "inbound";
 }
 
 interface MoneyFlowVisualizerProps {
@@ -67,6 +76,14 @@ const normalizeNodeColor = (score: number): string => {
   return "#22c55e";
 };
 
+const flowDirectionLabel: Record<FlowDirection, string> = {
+  outbound: "Outbound",
+  inbound: "Inbound",
+  bidirectional: "Bidirectional",
+};
+
+const clampDepth = (value: number): number => Math.max(1, Math.min(4, value));
+
 function resolveNodeId(node: string | number | MoneyFlowNode | undefined): string {
   if (typeof node === "string" || typeof node === "number") {
     return String(node);
@@ -82,6 +99,8 @@ export default function MoneyFlowVisualizer({
   const graphRef = useRef<ForceGraphMethods<MoneyFlowNode, MoneyFlowLink>>();
   const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
   const [depthLimit, setDepthLimit] = useState(1);
+  const [flowDirection, setFlowDirection] = useState<FlowDirection>("bidirectional");
+  const [hoverNodeId, setHoverNodeId] = useState<string | null>(null);
 
   const scoreMap = useMemo(() => {
     return new Map(accountScores.map((score) => [score.accountId, score]));
@@ -209,6 +228,38 @@ export default function MoneyFlowVisualizer({
     }
   }, [baseGraph.nodes, focusNodeId, highestRiskNode]);
 
+  const traversalMap = useMemo(() => {
+    const map = new Map<string, TraversalEdge[]>();
+
+    const register = (
+      from: string,
+      next: string,
+      link: MoneyFlowLink,
+      direction: "outbound" | "inbound",
+    ) => {
+      const bucket = map.get(from) ?? [];
+      bucket.push({ next, link, direction });
+      map.set(from, bucket);
+    };
+
+    for (const link of baseGraph.links) {
+      const source = resolveNodeId(link.source);
+      const target = resolveNodeId(link.target);
+      if (!source || !target || source === target) {
+        continue;
+      }
+
+      if (flowDirection !== "inbound") {
+        register(source, target, link, "outbound");
+      }
+      if (flowDirection !== "outbound") {
+        register(target, source, link, "inbound");
+      }
+    }
+
+    return map;
+  }, [baseGraph.links, flowDirection]);
+
   const depthMap = useMemo(() => {
     const depth = new Map<string, number>();
     if (!focusNodeId) {
@@ -216,22 +267,6 @@ export default function MoneyFlowVisualizer({
         depth.set(node.id, 0);
       }
       return depth;
-    }
-
-    const adjacency = new Map<string, Set<string>>();
-    for (const link of baseGraph.links) {
-      const source = resolveNodeId(link.source);
-      const target = resolveNodeId(link.target);
-
-      if (!adjacency.has(source)) {
-        adjacency.set(source, new Set<string>());
-      }
-      if (!adjacency.has(target)) {
-        adjacency.set(target, new Set<string>());
-      }
-
-      adjacency.get(source)?.add(target);
-      adjacency.get(target)?.add(source);
     }
 
     const queue: Array<{ id: string; depth: number }> = [{ id: focusNodeId, depth: 0 }];
@@ -247,7 +282,8 @@ export default function MoneyFlowVisualizer({
         continue;
       }
 
-      for (const neighbor of adjacency.get(current.id) ?? []) {
+      for (const edge of traversalMap.get(current.id) ?? []) {
+        const neighbor = edge.next;
         if (depth.has(neighbor)) {
           continue;
         }
@@ -259,7 +295,7 @@ export default function MoneyFlowVisualizer({
     }
 
     return depth;
-  }, [baseGraph.links, baseGraph.nodes, focusNodeId, depthLimit]);
+  }, [baseGraph.nodes, focusNodeId, depthLimit, traversalMap]);
 
   const visibleGraph = useMemo(() => {
     const visibleNodeIds = new Set<string>();
@@ -278,7 +314,31 @@ export default function MoneyFlowVisualizer({
 
     const nodes = baseGraph.nodes.filter((node) => visibleNodeIds.has(node.id));
     const links = baseGraph.links
-      .filter((link) => visibleNodeIds.has(resolveNodeId(link.source)) && visibleNodeIds.has(resolveNodeId(link.target)))
+      .filter((link) => {
+        const source = resolveNodeId(link.source);
+        const target = resolveNodeId(link.target);
+        if (!visibleNodeIds.has(source) || !visibleNodeIds.has(target)) {
+          return false;
+        }
+
+        if (!focusNodeId) {
+          return true;
+        }
+
+        const sourceDepth = depthMap.get(source);
+        const targetDepth = depthMap.get(target);
+        if (sourceDepth === undefined || targetDepth === undefined) {
+          return false;
+        }
+
+        if (flowDirection === "outbound") {
+          return sourceDepth < targetDepth;
+        }
+        if (flowDirection === "inbound") {
+          return targetDepth < sourceDepth;
+        }
+        return true;
+      })
       .map((link) => {
         const sourceDepth = depthMap.get(resolveNodeId(link.source)) ?? 0;
         const targetDepth = depthMap.get(resolveNodeId(link.target)) ?? 0;
@@ -289,19 +349,44 @@ export default function MoneyFlowVisualizer({
       });
 
     return { nodes, links };
-  }, [baseGraph.links, baseGraph.nodes, depthLimit, depthMap, focusNodeId]);
+  }, [baseGraph.links, baseGraph.nodes, depthLimit, depthMap, focusNodeId, flowDirection]);
+
+  const neighborIdsByNode = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+
+    const register = (left: string, right: string) => {
+      const bucket = map.get(left) ?? new Set<string>();
+      bucket.add(right);
+      map.set(left, bucket);
+    };
+
+    for (const link of visibleGraph.links) {
+      const source = resolveNodeId(link.source);
+      const target = resolveNodeId(link.target);
+      register(source, target);
+      register(target, source);
+    }
+
+    return map;
+  }, [visibleGraph.links]);
+
+  const visibleMetrics = useMemo(() => {
+    const totalVolume = visibleGraph.links.reduce((sum, link) => sum + link.totalAmount, 0);
+    const highRiskAccounts = visibleGraph.nodes.filter((node) => node.riskScore >= 80).length;
+    const elevatedRiskLinks = visibleGraph.links.filter((link) => link.avgRisk >= 65).length;
+
+    return {
+      nodeCount: visibleGraph.nodes.length,
+      linkCount: visibleGraph.links.length,
+      totalVolume,
+      highRiskAccounts,
+      elevatedRiskLinks,
+    };
+  }, [visibleGraph.links, visibleGraph.nodes]);
 
   const layeredPaths = useMemo(() => {
     if (!focusNodeId) {
       return [] as LayeredPath[];
-    }
-
-    const outgoing = new Map<string, MoneyFlowLink[]>();
-    for (const link of baseGraph.links) {
-      const source = resolveNodeId(link.source);
-      const bucket = outgoing.get(source) ?? [];
-      bucket.push(link);
-      outgoing.set(source, bucket);
     }
 
     const maxHops = Math.max(2, Math.min(5, depthLimit + 2));
@@ -310,6 +395,7 @@ export default function MoneyFlowVisualizer({
     const walk = (
       current: string,
       path: string[],
+      directions: Array<"outbound" | "inbound">,
       visited: Set<string>,
       hops: number,
       totalAmount: number,
@@ -320,38 +406,51 @@ export default function MoneyFlowVisualizer({
         return;
       }
 
-      for (const link of outgoing.get(current) ?? []) {
-        const next = resolveNodeId(link.target);
+      for (const step of traversalMap.get(current) ?? []) {
+        const next = step.next;
         if (!next || visited.has(next)) {
           continue;
         }
 
         const nextPath = [...path, next];
+        const nextDirections = [...directions, step.direction];
         const nextVisited = new Set(visited);
         nextVisited.add(next);
 
         const nextHops = hops + 1;
-        const nextAmount = totalAmount + link.totalAmount;
-        const nextWeightedRisk = weightedRisk + link.avgRisk * link.txCount;
-        const nextTxCount = txCount + link.txCount;
+        const nextAmount = totalAmount + step.link.totalAmount;
+        const nextWeightedRisk = weightedRisk + step.link.avgRisk * step.link.txCount;
+        const nextTxCount = txCount + step.link.txCount;
 
         if (nextHops >= 2) {
-          const key = nextPath.join(" -> ");
+          const key = `${nextPath.join("|")}::${nextDirections.join("|")}`;
           const averageRisk = nextWeightedRisk / Math.max(nextTxCount, 1);
+          const flow = nextPath
+            .map((nodeId, index) => {
+              if (index === 0) {
+                return nodeId;
+              }
+              const direction = nextDirections[index - 1];
+              const arrow = direction === "outbound" ? "->" : "<-";
+              return `${arrow} ${nodeId}`;
+            })
+            .join(" ");
+
           results.set(key, {
             key,
             hops: nextHops,
             path: nextPath,
+            flow,
             totalAmount: nextAmount,
             averageRisk,
           });
         }
 
-        walk(next, nextPath, nextVisited, nextHops, nextAmount, nextWeightedRisk, nextTxCount);
+        walk(next, nextPath, nextDirections, nextVisited, nextHops, nextAmount, nextWeightedRisk, nextTxCount);
       }
     };
 
-    walk(focusNodeId, [focusNodeId], new Set([focusNodeId]), 0, 0, 0, 0);
+    walk(focusNodeId, [focusNodeId], [], new Set([focusNodeId]), 0, 0, 0, 0);
 
     return Array.from(results.values())
       .sort((left, right) => {
@@ -364,7 +463,7 @@ export default function MoneyFlowVisualizer({
         return right.totalAmount - left.totalAmount;
       })
       .slice(0, 8);
-  }, [baseGraph.links, depthLimit, focusNodeId]);
+  }, [depthLimit, focusNodeId, traversalMap]);
 
   useEffect(() => {
     if (!graphRef.current || !visibleGraph.nodes.length) {
@@ -390,12 +489,23 @@ export default function MoneyFlowVisualizer({
       return;
     }
 
-    setDepthLimit((current) => Math.min(current + 1, 4));
+    setDepthLimit((current) => clampDepth(current + 1));
   };
 
   const resetFocus = () => {
     setFocusNodeId(highestRiskNode);
     setDepthLimit(1);
+    setHoverNodeId(null);
+    setFlowDirection("bidirectional");
+  };
+
+  const isLinkConnectedToHover = (link: MoneyFlowLink) => {
+    if (!hoverNodeId) {
+      return true;
+    }
+    const source = resolveNodeId(link.source);
+    const target = resolveNodeId(link.target);
+    return source === hoverNodeId || target === hoverNodeId;
   };
 
   return (
@@ -404,7 +514,7 @@ export default function MoneyFlowVisualizer({
         <div>
           <h3 className="text-sm font-semibold text-warning">Money Flow Visualizer</h3>
           <p className="text-[11px] text-muted-foreground mt-1">
-            Click a node to focus. Click the same node again to expand one more hop layer.
+            Click a node to focus. Toggle inbound/outbound direction and tune hop depth to inspect layered flow.
           </p>
         </div>
 
@@ -414,6 +524,9 @@ export default function MoneyFlowVisualizer({
           </span>
           <span className="px-2 py-1 rounded-full bg-secondary text-muted-foreground font-semibold">
             Layer Depth: {depthLimit}
+          </span>
+          <span className="px-2 py-1 rounded-full bg-secondary text-muted-foreground font-semibold">
+            Flow: {flowDirectionLabel[flowDirection]}
           </span>
           <button
             type="button"
@@ -425,6 +538,62 @@ export default function MoneyFlowVisualizer({
         </div>
       </div>
 
+      <div className="mb-3 flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+        <div className="inline-flex items-center rounded-full bg-secondary/70 p-1 text-[10px]">
+          {(["outbound", "bidirectional", "inbound"] as FlowDirection[]).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => setFlowDirection(mode)}
+              className={cn(
+                "px-2.5 py-1 rounded-full transition-colors",
+                flowDirection === mode
+                  ? "bg-warning/20 text-warning font-semibold"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {flowDirectionLabel[mode]}
+            </button>
+          ))}
+        </div>
+
+        <div className="inline-flex items-center gap-2 text-[10px] text-muted-foreground">
+          <span>Hop depth</span>
+          <input
+            type="range"
+            min={1}
+            max={4}
+            value={depthLimit}
+            onChange={(event) => setDepthLimit(clampDepth(Number(event.target.value)))}
+            className="w-28 accent-warning"
+          />
+          <span className="font-semibold text-foreground">{depthLimit}</span>
+        </div>
+      </div>
+
+      <div className="mb-3 grid grid-cols-2 xl:grid-cols-5 gap-2 text-[10px]">
+        <div className="rounded-lg border border-warning/15 bg-secondary/20 px-2.5 py-2">
+          <p className="text-muted-foreground">Visible Accounts</p>
+          <p className="text-foreground font-semibold mt-1">{visibleMetrics.nodeCount}</p>
+        </div>
+        <div className="rounded-lg border border-warning/15 bg-secondary/20 px-2.5 py-2">
+          <p className="text-muted-foreground">Visible Connections</p>
+          <p className="text-foreground font-semibold mt-1">{visibleMetrics.linkCount}</p>
+        </div>
+        <div className="rounded-lg border border-warning/15 bg-secondary/20 px-2.5 py-2">
+          <p className="text-muted-foreground">Visible Volume</p>
+          <p className="text-foreground font-semibold mt-1">{toCurrency(visibleMetrics.totalVolume)}</p>
+        </div>
+        <div className="rounded-lg border border-warning/15 bg-secondary/20 px-2.5 py-2">
+          <p className="text-muted-foreground">High-risk Accounts</p>
+          <p className="text-destructive font-semibold mt-1">{visibleMetrics.highRiskAccounts}</p>
+        </div>
+        <div className="rounded-lg border border-warning/15 bg-secondary/20 px-2.5 py-2">
+          <p className="text-muted-foreground">Elevated-risk Links</p>
+          <p className="text-warning font-semibold mt-1">{visibleMetrics.elevatedRiskLinks}</p>
+        </div>
+      </div>
+
       <div className="h-[420px] rounded-lg border border-warning/20 bg-[#02050b]">
         <ForceGraph2D
           ref={graphRef}
@@ -433,12 +602,27 @@ export default function MoneyFlowVisualizer({
           nodeRelSize={6}
           linkDirectionalArrowLength={3.8}
           linkDirectionalArrowRelPos={1}
-          linkDirectionalParticles={1}
+          linkDirectionalParticles={(link) => {
+            const typed = link as MoneyFlowLink;
+            if (!isLinkConnectedToHover(typed)) {
+              return 0;
+            }
+            return typed.avgRisk >= 80 ? 2 : 1;
+          }}
           linkDirectionalParticleWidth={(link) => ((link as MoneyFlowLink).avgRisk >= 80 ? 2.2 : 1.1)}
-          linkColor={(link) => normalizeEdgeRiskColor((link as MoneyFlowLink).avgRisk)}
+          linkColor={(link) => {
+            const typed = link as MoneyFlowLink;
+            if (!isLinkConnectedToHover(typed)) {
+              return "rgba(100, 116, 139, 0.2)";
+            }
+            return normalizeEdgeRiskColor(typed.avgRisk);
+          }}
           linkWidth={(link) => {
             const typed = link as MoneyFlowLink;
             const base = typed.avgRisk >= 80 ? 2.6 : typed.avgRisk >= 60 ? 1.8 : 1.2;
+            if (!isLinkConnectedToHover(typed)) {
+              return Math.max(0.8, base * 0.45);
+            }
             return base + Math.min(typed.txCount * 0.12, 1.2);
           }}
           nodeCanvasObjectMode={() => "replace"}
@@ -447,18 +631,25 @@ export default function MoneyFlowVisualizer({
             const typedNode = account as unknown as MoneyFlowNode;
             const radius = Math.max(4.5, 4 + Math.min(typedNode.transactionCount, 8) * 0.6);
             const isFocused = typedNode.id === focusNodeId;
+            const isHoverRoot = typedNode.id === hoverNodeId;
+            const isNeighbor = hoverNodeId
+              ? (neighborIdsByNode.get(hoverNodeId)?.has(typedNode.id) ?? false)
+              : false;
+            const isDimmed = hoverNodeId !== null && !isHoverRoot && !isNeighbor;
+
+            context.globalAlpha = isDimmed ? 0.28 : 1;
 
             context.beginPath();
             context.arc(account.x ?? 0, account.y ?? 0, radius, 0, 2 * Math.PI, false);
             context.fillStyle = normalizeNodeColor(typedNode.riskScore);
             context.fill();
 
-            context.lineWidth = isFocused ? 2.2 : 1;
-            context.strokeStyle = isFocused ? "#facc15" : "rgba(148, 163, 184, 0.35)";
+            context.lineWidth = isFocused || isHoverRoot ? 2.4 : 1;
+            context.strokeStyle = isFocused || isHoverRoot ? "#facc15" : "rgba(148, 163, 184, 0.35)";
             context.stroke();
 
             const fontSize = 10 / globalScale;
-            context.font = `${fontSize}px Inter, sans-serif`;
+            context.font = `${fontSize}px JetBrains Mono, monospace`;
             context.fillStyle = "rgba(245, 245, 245, 0.9)";
             context.textAlign = "left";
             context.textBaseline = "middle";
@@ -467,6 +658,8 @@ export default function MoneyFlowVisualizer({
               ? `${typedNode.accountId.slice(0, 18)}...`
               : typedNode.accountId;
             context.fillText(label, (account.x ?? 0) + radius + 2, account.y ?? 0);
+
+            context.globalAlpha = 1;
           }}
           nodeLabel={(node) => {
             const typedNode = node as unknown as MoneyFlowNode;
@@ -475,11 +668,23 @@ export default function MoneyFlowVisualizer({
                 <div style="font-weight:700;color:#facc15;margin-bottom:3px;">${typedNode.accountId}</div>
                 <div>Risk score: <b>${typedNode.riskScore}</b></div>
                 <div>Transaction count: <b>${typedNode.transactionCount}</b></div>
+                <div>Blocked / Flagged: <b>${typedNode.blockedCount} / ${typedNode.flaggedCount}</b></div>
+                <div>Total amount: <b>${toCurrency(typedNode.totalAmount)}</b></div>
+                <div>Counterparties: <b>${typedNode.counterpartyCount}</b></div>
                 <div>Institution: <b>${typedNode.institution}</b></div>
               </div>
             `;
           }}
           onNodeClick={onNodeClick}
+          onNodeHover={(node) => {
+            if (!node) {
+              setHoverNodeId(null);
+              return;
+            }
+            const nodeId = String((node as NodeObject<MoneyFlowNode>).id ?? "");
+            setHoverNodeId(nodeId || null);
+          }}
+          onBackgroundClick={() => setHoverNodeId(null)}
           showPointerCursor
           cooldownTicks={120}
           d3AlphaDecay={0.03}
@@ -496,7 +701,7 @@ export default function MoneyFlowVisualizer({
             <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
               {layeredPaths.map((path) => (
                 <div key={path.key} className="rounded-md bg-background/50 border border-border/50 px-2 py-1.5">
-                  <p className="text-[10px] text-foreground truncate">{path.path.join(" -> ")}</p>
+                  <p className="text-[10px] text-foreground truncate">{path.flow}</p>
                   <p className="text-[10px] text-muted-foreground mt-0.5">
                     {path.hops} hops • Avg risk {Math.round(path.averageRisk)} • {toCurrency(path.totalAmount)}
                   </p>
@@ -504,7 +709,7 @@ export default function MoneyFlowVisualizer({
               ))}
             </div>
           ) : (
-            <p className="text-[10px] text-muted-foreground">No multi-hop path in current filter. Expand node layers or widen filters.</p>
+            <p className="text-[10px] text-muted-foreground">No multi-hop path in current direction/depth. Try Bidirectional or increase hop depth.</p>
           )}
         </div>
 
@@ -515,6 +720,8 @@ export default function MoneyFlowVisualizer({
             <p><span className="inline-block w-2 h-2 rounded-full bg-warning mr-1" />Elevated-risk node</p>
             <p><span className="inline-block w-2 h-2 rounded-full bg-primary mr-1" />Medium-risk node</p>
             <p><span className="inline-block w-2 h-2 rounded-full bg-success mr-1" />Low-risk node</p>
+            <p><span className="inline-block w-2 h-2 rounded-full bg-accent mr-1" />Hover to isolate neighborhood</p>
+            <p><span className="inline-block w-2 h-2 rounded-full bg-secondary mr-1" />Click focused node to expand</p>
           </div>
         </div>
       </div>

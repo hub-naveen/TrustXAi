@@ -52,6 +52,7 @@ import EntityFilterPanel, {
 import CaseLinkingPanel, { type CaseOption } from "@/components/fraud-intel/CaseLinkingPanel";
 import MoneyFlowTimeline from "@/components/fraud-intel/MoneyFlowTimeline";
 import InvestigationReportGenerator from "@/components/fraud-intel/InvestigationReportGenerator";
+import InvestigationWorkflowPanel from "@/components/fraud-intel/InvestigationWorkflowPanel";
 import {
   fetchAllTransactions,
   fetchFraudDNA,
@@ -1492,6 +1493,11 @@ export default function FraudIntelligence() {
                   pathRisks={mergedInvestigation.pathRisks}
                   sourceNodeIds={mergedInvestigation.sourceNodeIds}
                   destinationNodeIds={mergedInvestigation.destinationNodeIds}
+                  disabled={!investigationMode}
+                />
+
+                <InvestigationWorkflowPanel
+                  selectedCaseIds={selectedCaseIds}
                   disabled={!investigationMode}
                 />
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from math import exp
 
 from pymongo.database import Database
@@ -238,6 +238,15 @@ def seed_database(db: Database) -> None:
             "severity": "critical",
             "timestamp": parse_ts("2024-03-15T14:23:00Z"),
             "transaction_id": "TXN-8294",
+            "risk_score": 94,
+            "model_confidence": 0.96,
+            "rule_confidence": 0.93,
+            "top_factors": [
+                {"factor": "Transaction velocity", "score": 98, "rationale": "Burst frequency crossed velocity threshold in under 2 minutes."},
+                {"factor": "Crypto destination", "score": 94, "rationale": "Destination is an unhosted wallet tied to prior laundering investigations."},
+                {"factor": "High amount", "score": 90, "rationale": "Transfer amount exceeded adaptive account baseline."},
+            ],
+            "related_entities": ["Axis Bank ****3421", "Unknown Wallet 0xF3..a9", "Axis Bank"],
         },
         {
             "id": "ALT-002",
@@ -246,6 +255,15 @@ def seed_database(db: Database) -> None:
             "severity": "critical",
             "timestamp": parse_ts("2024-03-15T14:10:00Z"),
             "transaction_id": "TXN-8298",
+            "risk_score": 97,
+            "model_confidence": 0.98,
+            "rule_confidence": 0.95,
+            "top_factors": [
+                {"factor": "Shell exposure", "score": 99, "rationale": "Beneficiary matches shell-company watchlist with no filing history."},
+                {"factor": "Layering path", "score": 96, "rationale": "Funds passed through intermediate mule account before shell transfer."},
+                {"factor": "Cross-institution anomaly", "score": 92, "rationale": "Pattern matched multi-bank laundering signature DNA-002."},
+            ],
+            "related_entities": ["PNB ****2234", "Shell Company Ltd", "PNB"],
         },
         {
             "id": "ALT-003",
@@ -254,6 +272,15 @@ def seed_database(db: Database) -> None:
             "severity": "high",
             "timestamp": parse_ts("2024-03-15T14:18:00Z"),
             "transaction_id": "TXN-8296",
+            "risk_score": 78,
+            "model_confidence": 0.89,
+            "rule_confidence": 0.86,
+            "top_factors": [
+                {"factor": "Crypto off-ramp", "score": 91, "rationale": "Account transferred funds to exchange with high wash-trade exposure."},
+                {"factor": "Pattern similarity", "score": 88, "rationale": "Sequence matched known fraud DNA cluster with high similarity."},
+                {"factor": "Counterparty novelty", "score": 80, "rationale": "Destination counterparty has low trust and short account age."},
+            ],
+            "related_entities": ["SBI ****0093", "Crypto Exchange", "SBI"],
         },
         {
             "id": "ALT-004",
@@ -262,6 +289,15 @@ def seed_database(db: Database) -> None:
             "severity": "high",
             "timestamp": parse_ts("2024-03-15T13:58:00Z"),
             "transaction_id": "TXN-8302",
+            "risk_score": 85,
+            "model_confidence": 0.9,
+            "rule_confidence": 0.88,
+            "top_factors": [
+                {"factor": "Smurfing split", "score": 93, "rationale": "Bulk transfer fragmented into sub-threshold recipients."},
+                {"factor": "Recipient fan-out", "score": 86, "rationale": "Recipient graph expansion exceeded standard behavior profile."},
+                {"factor": "Risk escalation", "score": 82, "rationale": "Risk score crossed high-risk threshold after enrichment."},
+            ],
+            "related_entities": ["Axis Bank ****1198", "Multiple Recipients", "Axis Bank"],
         },
         {
             "id": "ALT-005",
@@ -270,6 +306,15 @@ def seed_database(db: Database) -> None:
             "severity": "medium",
             "timestamp": parse_ts("2024-03-15T13:55:00Z"),
             "transaction_id": "TXN-8303",
+            "risk_score": 62,
+            "model_confidence": 0.74,
+            "rule_confidence": 0.71,
+            "top_factors": [
+                {"factor": "Cross-border context", "score": 78, "rationale": "International route has elevated jurisdictional risk."},
+                {"factor": "Threshold proximity", "score": 72, "rationale": "Amount close to mandatory reporting threshold for wire review."},
+                {"factor": "Behavioral drift", "score": 65, "rationale": "Sender profile shifted from domestic to foreign counterparties."},
+            ],
+            "related_entities": ["HDFC ****3344", "International Wire", "HDFC Bank"],
         },
     ]
     db["alerts"].insert_many(alerts)
@@ -483,6 +528,83 @@ def seed_database(db: Database) -> None:
     ]
     db["investigation_cases"].insert_many(investigation_cases)
 
+    now = datetime.now(timezone.utc)
+    workflow_cases = [
+        {
+            "workflow_case_id": "WFC-2026-1001",
+            "investigation_case_id": "CASE-ML-2026-0441",
+            "title": "Escalate layered wire to crypto wallet",
+            "summary": "Trace beneficiary ownership and preserve evidence trail for prosecution packet.",
+            "priority": "critical",
+            "status": "in_progress",
+            "created_at": now - timedelta(hours=6),
+            "updated_at": now - timedelta(minutes=18),
+            "created_by_user_id": 1,
+            "created_by_name": "Rajesh Chandra",
+            "assigned_to_user_id": 2,
+            "assigned_to_name": "Priya Sharma",
+            "due_at": now + timedelta(hours=10),
+            "related_alert_ids": ["ALT-001", "ALT-002"],
+            "related_transaction_ids": ["TXN-8294", "TXN-8298"],
+            "comments": [
+                {
+                    "id": "CMT-WFC-1001-01",
+                    "author_user_id": 1,
+                    "author_name": "Rajesh Chandra",
+                    "message": "Open STR draft and request full KYC packet from source institution.",
+                    "created_at": now - timedelta(hours=5, minutes=30),
+                },
+                {
+                    "id": "CMT-WFC-1001-02",
+                    "author_user_id": 2,
+                    "author_name": "Priya Sharma",
+                    "message": "Linked destination wallet with prior mixer hop from CASE-ML-2026-0617.",
+                    "created_at": now - timedelta(hours=1, minutes=12),
+                },
+            ],
+            "evidence": [
+                {
+                    "id": "EVD-WFC-1001-01",
+                    "filename": "wallet_trace_summary.pdf",
+                    "content_type": "application/pdf",
+                    "size_bytes": 184220,
+                    "uploaded_by_user_id": 2,
+                    "uploaded_by_name": "Priya Sharma",
+                    "uploaded_at": now - timedelta(hours=1),
+                    "storage_path": "uploads/evidence/WFC-2026-1001/wallet_trace_summary.pdf",
+                }
+            ],
+        },
+        {
+            "workflow_case_id": "WFC-2026-1002",
+            "investigation_case_id": "CASE-ML-2026-0617",
+            "title": "Cross-border mule loop evidence packaging",
+            "summary": "Collect offshore account documents and chain of custody records for legal handoff.",
+            "priority": "high",
+            "status": "on_hold",
+            "created_at": now - timedelta(hours=30),
+            "updated_at": now - timedelta(hours=3),
+            "created_by_user_id": 1,
+            "created_by_name": "Rajesh Chandra",
+            "assigned_to_user_id": 2,
+            "assigned_to_name": "Priya Sharma",
+            "due_at": now - timedelta(hours=2),
+            "related_alert_ids": ["ALT-003", "ALT-004"],
+            "related_transaction_ids": ["TXN-8296", "TXN-8302"],
+            "comments": [
+                {
+                    "id": "CMT-WFC-1002-01",
+                    "author_user_id": 2,
+                    "author_name": "Priya Sharma",
+                    "message": "Awaiting offshore banking attestations before status can move to resolved.",
+                    "created_at": now - timedelta(hours=4, minutes=20),
+                }
+            ],
+            "evidence": [],
+        },
+    ]
+    db["investigation_workflow_cases"].insert_many(workflow_cases)
+
     add_pending_record(
         db,
         record_type="bootstrap",
@@ -492,6 +614,7 @@ def seed_database(db: Database) -> None:
             "transactions": len(transactions),
             "alerts": len(alerts),
             "investigation_cases": len(investigation_cases),
+            "workflow_cases": len(workflow_cases),
         },
     )
     mine_pending_records(db, miner="seed-engine")

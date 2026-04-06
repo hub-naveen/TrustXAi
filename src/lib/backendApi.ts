@@ -126,6 +126,124 @@ export interface BackendAlert {
   severity: string;
   timestamp: string;
   transaction_id: string;
+  risk_score: number | null;
+  model_confidence: number | null;
+  rule_confidence: number | null;
+  top_factors: BackendAlertFactor[];
+  related_entities: string[];
+}
+
+export interface BackendAlertFactor {
+  factor: string;
+  score: number;
+  rationale: string;
+}
+
+export type BackendWorkflowCasePriority = "low" | "medium" | "high" | "critical" | string;
+export type BackendWorkflowCaseStatus =
+  | "open"
+  | "assigned"
+  | "in_progress"
+  | "on_hold"
+  | "resolved"
+  | "closed"
+  | "reopened"
+  | string;
+
+export interface BackendWorkflowAssignee {
+  user_id: number;
+  name: string;
+  email: string;
+  role: string;
+}
+
+export interface BackendWorkflowComment {
+  id: string;
+  author_user_id: number;
+  author_name: string;
+  message: string;
+  created_at: string;
+}
+
+export interface BackendWorkflowEvidence {
+  id: string;
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+  uploaded_by_user_id: number;
+  uploaded_by_name: string;
+  uploaded_at: string;
+  storage_path: string;
+}
+
+export interface BackendWorkflowCase {
+  workflow_case_id: string;
+  investigation_case_id: string | null;
+  title: string;
+  summary: string | null;
+  priority: BackendWorkflowCasePriority;
+  status: BackendWorkflowCaseStatus;
+  created_at: string;
+  updated_at: string;
+  created_by_user_id: number;
+  created_by_name: string;
+  assigned_to_user_id: number | null;
+  assigned_to_name: string | null;
+  due_at: string;
+  sla_remaining_seconds: number;
+  sla_breached: boolean;
+  related_alert_ids: string[];
+  related_transaction_ids: string[];
+  comments: BackendWorkflowComment[];
+  evidence: BackendWorkflowEvidence[];
+}
+
+export interface WorkflowCaseCreatePayload {
+  title: string;
+  summary?: string;
+  investigation_case_id?: string;
+  priority?: BackendWorkflowCasePriority;
+  assigned_to_user_id?: number;
+  related_alert_ids?: string[];
+  related_transaction_ids?: string[];
+  sla_hours?: number;
+}
+
+export interface FraudAlertStreamHandlers {
+  onAlert: (alert: BackendAlert, eventType: "snapshot" | "alert") => void;
+  onHeartbeat?: (payload: unknown) => void;
+  onOpen?: () => void;
+  onError?: (error: Error) => void;
+}
+
+export interface BackendInvestigationAuditLog {
+  log_id: string;
+  sequence: number;
+  timestamp: string;
+  actor_user_id: number;
+  actor_name: string;
+  action: string;
+  entity_type: string;
+  entity_id: string;
+  case_id: string | null;
+  payload: Record<string, unknown>;
+  previous_hash: string;
+  hash: string;
+}
+
+export interface BackendInvestigationAuditVerifyResponse {
+  valid: boolean;
+  checked_records: number;
+  reason: string;
+  latest_hash: string | null;
+}
+
+export interface SignedExportReceipt {
+  filename: string;
+  signature: string | null;
+  signatureAlgorithm: string | null;
+  digestSha256: string | null;
+  signedAt: string | null;
 }
 
 export interface BackendInvestigationCaseOption {
@@ -362,6 +480,91 @@ async function requestJson<T>(path: string, options: RequestOptions = {}): Promi
   return (await response.json()) as T;
 }
 
+function extractFilenameFromDisposition(contentDisposition: string | null): string | null {
+  if (!contentDisposition) return null;
+
+  const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1]);
+    } catch {
+      return utf8Match[1];
+    }
+  }
+
+  const plainMatch = contentDisposition.match(/filename="?([^";]+)"?/i);
+  return plainMatch?.[1] ? plainMatch[1] : null;
+}
+
+async function downloadFile(
+  path: string,
+  fallbackFilename: string,
+  accept: string,
+): Promise<SignedExportReceipt> {
+  const token = getStoredAuthToken();
+  if (!token) {
+    throw new Error("Please sign in again to access backend data.");
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(withPath(path), {
+      method: "GET",
+      headers: {
+        Accept: accept,
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  } catch {
+    throw new Error("Backend is unreachable. Start the API server and try again.");
+  }
+
+  if (!response.ok) {
+    let detail = `${response.status} ${response.statusText}`;
+    try {
+      const errorPayload = (await response.json()) as { detail?: string };
+      if (typeof errorPayload.detail === "string" && errorPayload.detail.trim()) {
+        detail = errorPayload.detail;
+      }
+    } catch {
+      // Keep fallback detail when response body is not valid JSON.
+    }
+    throw new Error(detail);
+  }
+
+  const blob = await response.blob();
+  const filename =
+    extractFilenameFromDisposition(response.headers.get("Content-Disposition")) || fallbackFilename;
+
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = objectUrl;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(objectUrl);
+
+  return {
+    filename,
+    signature: response.headers.get("X-TrustXAi-Signature"),
+    signatureAlgorithm: response.headers.get("X-TrustXAi-Signature-Alg"),
+    digestSha256: response.headers.get("X-TrustXAi-Digest-Sha256"),
+    signedAt: response.headers.get("X-TrustXAi-Signed-At"),
+  };
+}
+
+function withCaseIds(path: string, caseIds: string[]): string {
+  const search = new URLSearchParams();
+  for (const caseId of caseIds) {
+    const normalized = caseId.trim();
+    if (normalized) {
+      search.append("case_ids", normalized);
+    }
+  }
+
+  const query = search.toString();
+  return query ? `${path}?${query}` : path;
+}
+
 export async function loginWithBackend(email: string, password: string): Promise<BackendLoginResponse> {
   return requestJson<BackendLoginResponse>("/auth/login", {
     method: "POST",
@@ -462,6 +665,101 @@ export async function fetchFraudAlerts(): Promise<BackendAlert[]> {
   return requestJson<BackendAlert[]>("/fraud-intelligence/alerts", { auth: true });
 }
 
+export function subscribeFraudAlertStream(handlers: FraudAlertStreamHandlers): () => void {
+  const token = getStoredAuthToken();
+  if (!token) {
+    throw new Error("Please sign in again to access backend data.");
+  }
+
+  const controller = new AbortController();
+
+  const parseSseEvent = (rawEvent: string) => {
+    let eventName = "message";
+    const dataLines: string[] = [];
+
+    for (const line of rawEvent.split("\n")) {
+      if (!line || line.startsWith(":")) continue;
+      if (line.startsWith("event:")) {
+        eventName = line.slice(6).trim();
+        continue;
+      }
+      if (line.startsWith("data:")) {
+        dataLines.push(line.slice(5).trim());
+      }
+    }
+
+    if (!dataLines.length) return;
+    const payloadText = dataLines.join("\n");
+
+    if (eventName === "heartbeat") {
+      if (!handlers.onHeartbeat) return;
+      try {
+        handlers.onHeartbeat(JSON.parse(payloadText));
+      } catch {
+        handlers.onHeartbeat(payloadText);
+      }
+      return;
+    }
+
+    if (eventName === "snapshot" || eventName === "alert") {
+      const alert = JSON.parse(payloadText) as BackendAlert;
+      handlers.onAlert(alert, eventName);
+    }
+  };
+
+  void (async () => {
+    try {
+      const response = await fetch(withPath("/fraud-intelligence/alerts/stream"), {
+        method: "GET",
+        headers: {
+          Accept: "text/event-stream",
+          Authorization: `Bearer ${token}`,
+        },
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        throw new Error(`Unable to subscribe to alert stream (${response.status} ${response.statusText})`);
+      }
+      if (!response.body) {
+        throw new Error("Alert stream is unavailable in this browser.");
+      }
+
+      handlers.onOpen?.();
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+      let buffer = "";
+
+      while (!controller.signal.aborted) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+
+        let boundary = buffer.indexOf("\n\n");
+        while (boundary >= 0) {
+          const rawEvent = buffer.slice(0, boundary).trim();
+          buffer = buffer.slice(boundary + 2);
+          if (rawEvent) {
+            parseSseEvent(rawEvent);
+          }
+          boundary = buffer.indexOf("\n\n");
+        }
+      }
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      handlers.onError?.(
+        error instanceof Error ? error : new Error("Fraud alert stream disconnected unexpectedly."),
+      );
+    }
+  })();
+
+  return () => {
+    controller.abort();
+  };
+}
+
 export async function fetchInvestigationCaseOptions(): Promise<BackendInvestigationCaseOption[]> {
   return requestJson<BackendInvestigationCaseOption[]>("/fraud-intelligence/investigation/options", {
     auth: true,
@@ -489,6 +787,141 @@ export async function fetchMergedInvestigation(caseIds: string[]): Promise<Backe
     : "/fraud-intelligence/investigation/merge";
 
   return requestJson<BackendInvestigationMergedResponse>(path, { auth: true });
+}
+
+export async function fetchWorkflowAssignees(): Promise<BackendWorkflowAssignee[]> {
+  return requestJson<BackendWorkflowAssignee[]>("/fraud-intelligence/investigation/workflow/assignees", {
+    auth: true,
+  });
+}
+
+export async function fetchInvestigationAuditLogs(
+  caseIds: string[] = [],
+  limit = 250,
+): Promise<BackendInvestigationAuditLog[]> {
+  const search = new URLSearchParams();
+  for (const caseId of caseIds) {
+    const normalized = caseId.trim();
+    if (normalized) {
+      search.append("case_ids", normalized);
+    }
+  }
+  search.set("limit", String(Math.max(1, Math.min(5000, limit))));
+  return requestJson<BackendInvestigationAuditLog[]>(
+    `/fraud-intelligence/investigation/audit/logs?${search.toString()}`,
+    { auth: true },
+  );
+}
+
+export async function verifyInvestigationAuditLogs(
+  caseIds: string[] = [],
+): Promise<BackendInvestigationAuditVerifyResponse> {
+  const path = withCaseIds("/fraud-intelligence/investigation/audit/logs/verify", caseIds);
+  return requestJson<BackendInvestigationAuditVerifyResponse>(path, { auth: true });
+}
+
+export async function downloadSignedInvestigationReportPdf(
+  caseIds: string[],
+): Promise<SignedExportReceipt> {
+  const path = withCaseIds("/fraud-intelligence/investigation/reports/export/pdf", caseIds);
+  return downloadFile(path, "trustxai-investigation-report.pdf", "application/pdf");
+}
+
+export async function downloadSignedInvestigationReportCsv(
+  caseIds: string[],
+): Promise<SignedExportReceipt> {
+  const path = withCaseIds("/fraud-intelligence/investigation/reports/export/csv", caseIds);
+  return downloadFile(path, "trustxai-investigation-report.csv", "text/csv");
+}
+
+export async function downloadRegulatorExportBundle(
+  caseIds: string[],
+): Promise<SignedExportReceipt> {
+  const path = withCaseIds("/fraud-intelligence/investigation/reports/export/bundle", caseIds);
+  return downloadFile(path, "trustxai-regulator-export-bundle.zip", "application/zip");
+}
+
+export async function fetchWorkflowCases(investigationCaseId?: string): Promise<BackendWorkflowCase[]> {
+  const normalizedCaseId = investigationCaseId?.trim();
+  const path = normalizedCaseId
+    ? `/fraud-intelligence/investigation/workflow/cases?investigation_case_id=${encodeURIComponent(normalizedCaseId)}`
+    : "/fraud-intelligence/investigation/workflow/cases";
+
+  return requestJson<BackendWorkflowCase[]>(path, { auth: true });
+}
+
+export async function fetchWorkflowCase(workflowCaseId: string): Promise<BackendWorkflowCase> {
+  return requestJson<BackendWorkflowCase>(
+    `/fraud-intelligence/investigation/workflow/cases/${encodeURIComponent(workflowCaseId)}`,
+    { auth: true },
+  );
+}
+
+export async function createWorkflowCase(payload: WorkflowCaseCreatePayload): Promise<BackendWorkflowCase> {
+  return requestJson<BackendWorkflowCase>("/fraud-intelligence/investigation/workflow/cases", {
+    method: "POST",
+    auth: true,
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function assignWorkflowCase(
+  workflowCaseId: string,
+  assigneeUserId: number,
+): Promise<BackendWorkflowCase> {
+  return requestJson<BackendWorkflowCase>(
+    `/fraud-intelligence/investigation/workflow/cases/${encodeURIComponent(workflowCaseId)}/assign`,
+    {
+      method: "POST",
+      auth: true,
+      body: JSON.stringify({ assignee_user_id: assigneeUserId }),
+    },
+  );
+}
+
+export async function updateWorkflowCaseStatus(
+  workflowCaseId: string,
+  statusValue: BackendWorkflowCaseStatus,
+): Promise<BackendWorkflowCase> {
+  return requestJson<BackendWorkflowCase>(
+    `/fraud-intelligence/investigation/workflow/cases/${encodeURIComponent(workflowCaseId)}/status`,
+    {
+      method: "POST",
+      auth: true,
+      body: JSON.stringify({ status: statusValue }),
+    },
+  );
+}
+
+export async function addWorkflowCaseComment(
+  workflowCaseId: string,
+  message: string,
+): Promise<BackendWorkflowCase> {
+  return requestJson<BackendWorkflowCase>(
+    `/fraud-intelligence/investigation/workflow/cases/${encodeURIComponent(workflowCaseId)}/comments`,
+    {
+      method: "POST",
+      auth: true,
+      body: JSON.stringify({ message }),
+    },
+  );
+}
+
+export async function uploadWorkflowEvidence(
+  workflowCaseId: string,
+  file: File,
+): Promise<BackendWorkflowCase> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  return requestJson<BackendWorkflowCase>(
+    `/fraud-intelligence/investigation/workflow/cases/${encodeURIComponent(workflowCaseId)}/evidence`,
+    {
+      method: "POST",
+      auth: true,
+      body: formData,
+    },
+  );
 }
 
 export async function fetchBlockchainEntries(

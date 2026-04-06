@@ -19,6 +19,7 @@ import {
   fetchAllTransactions,
   fetchDashboardOverview,
   fetchFraudAlerts,
+  subscribeFraudAlertStream,
   type BackendAlert,
   type BackendDashboardSummary,
   type BackendTransaction,
@@ -61,6 +62,16 @@ interface DashboardAlert {
   description: string;
   severity: string;
   transactionId: string;
+  timestamp: string;
+  riskScore: number;
+  modelConfidence: number;
+  ruleConfidence: number;
+  topFactors: Array<{
+    factor: string;
+    score: number;
+    rationale: string;
+  }>;
+  relatedEntities: string[];
 }
 
 const mapDashboardTransaction = (row: BackendTransaction): DashboardTransaction => ({
@@ -80,6 +91,12 @@ const mapDashboardAlert = (row: BackendAlert): DashboardAlert => ({
   description: row.description,
   severity: row.severity,
   transactionId: row.transaction_id,
+  timestamp: row.timestamp,
+  riskScore: row.risk_score ?? 0,
+  modelConfidence: row.model_confidence ?? 0,
+  ruleConfidence: row.rule_confidence ?? 0,
+  topFactors: row.top_factors ?? [],
+  relatedEntities: row.related_entities ?? [],
 });
 
 function AnimatedStat({ icon: Icon, label, targetValue, displayValue, change, changeType = "neutral", delay = 0 }: {
@@ -173,6 +190,37 @@ export default function Dashboard() {
     }, 10000);
     return () => clearInterval(id);
   }, [authToken, isLive, syncDashboardData]);
+
+  useEffect(() => {
+    if (!isLive || !authToken) return;
+
+    let unsubscribe = () => undefined;
+
+    try {
+      unsubscribe = subscribeFraudAlertStream({
+        onAlert: (alert) => {
+          setAlertRows((previous) => {
+            const next = [alert, ...previous.filter((entry) => entry.id !== alert.id)];
+            next.sort(
+              (left, right) =>
+                new Date(right.timestamp).getTime() - new Date(left.timestamp).getTime(),
+            );
+            return next.slice(0, 300);
+          });
+        },
+        onError: (error) => {
+          setSyncMessage(`Live alert stream disconnected: ${error.message}`);
+        },
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "Unable to start live alert stream.";
+      setSyncMessage(detail);
+    }
+
+    return () => {
+      unsubscribe();
+    };
+  }, [authToken, isLive]);
 
   const toggleLive = () => setIsLive((previous) => !previous);
 
@@ -533,6 +581,33 @@ export default function Dashboard() {
                     <span className="text-[10px] text-muted-foreground font-mono shrink-0">{alert.severity.toUpperCase()}</span>
                   </div>
                   <p className="text-[11px] text-muted-foreground mt-1">{alert.description}</p>
+
+                  <div className="mt-2 grid grid-cols-2 gap-1 text-[10px] text-muted-foreground font-mono">
+                    <p>Risk: {alert.riskScore}</p>
+                    <p>Model: {(alert.modelConfidence * 100).toFixed(0)}%</p>
+                    <p>Rules: {(alert.ruleConfidence * 100).toFixed(0)}%</p>
+                    <p>{new Date(alert.timestamp).toLocaleTimeString()}</p>
+                  </div>
+
+                  {alert.topFactors.length ? (
+                    <div className="mt-2 space-y-1">
+                      {alert.topFactors.slice(0, 2).map((factor) => (
+                        <div key={`${alert.id}-${factor.factor}`} className="rounded-md bg-secondary/40 px-2 py-1">
+                          <p className="text-[10px] font-semibold">
+                            {factor.factor} ({factor.score})
+                          </p>
+                          <p className="text-[10px] text-muted-foreground mt-0.5">{factor.rationale}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {alert.relatedEntities.length ? (
+                    <p className="text-[10px] text-muted-foreground mt-2">
+                      Entities: {alert.relatedEntities.slice(0, 2).join(" | ")}
+                    </p>
+                  ) : null}
+
                   <p className="text-[10px] text-muted-foreground font-mono mt-2">{alert.transactionId}</p>
                 </motion.div>
               ))}
