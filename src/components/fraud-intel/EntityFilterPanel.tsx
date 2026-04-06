@@ -69,8 +69,8 @@ export default function EntityFilterPanel({
     <div className={`glass rounded-xl p-4 space-y-4 ${disabled ? "opacity-60" : ""}`}>
       <div className="flex items-center justify-between gap-2">
         <div>
-          <h3 className="text-sm font-semibold">Filter and Entity Linking</h3>
-          <p className="text-[11px] text-muted-foreground mt-0.5">Highlight linked accounts by identity artifacts</p>
+          <h3 className="text-sm font-semibold">Bank Account Filters and Identity Linking</h3>
+          <p className="text-[11px] text-muted-foreground mt-0.5">Filter by holder, phone, IP, email, and bank details to line up linked accounts</p>
         </div>
         <button
           type="button"

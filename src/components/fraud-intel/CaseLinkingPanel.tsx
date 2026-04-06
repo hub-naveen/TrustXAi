@@ -36,8 +36,8 @@ export default function CaseLinkingPanel({
   return (
     <div className={`glass rounded-xl p-4 space-y-3 ${disabled ? "opacity-60" : ""}`}>
       <div>
-        <h3 className="text-sm font-semibold">Multi-Case Linking</h3>
-        <p className="text-[11px] text-muted-foreground mt-0.5">Select Case(s) to merge investigation graphs</p>
+        <h3 className="text-sm font-semibold">Inter-Case Layer Linking</h3>
+        <p className="text-[11px] text-muted-foreground mt-0.5">Select multiple Case IDs to line up and merge bank account spider maps</p>
       </div>
 
       <div className="space-y-2">
@@ -65,7 +65,7 @@ export default function CaseLinkingPanel({
 
       <div className="rounded-lg border border-border bg-secondary/50 p-3 space-y-2">
         <p className="text-xs font-semibold">Shared Across Selected Cases</p>
-        <p className="text-[10px] text-muted-foreground">Common accounts</p>
+        <p className="text-[10px] text-muted-foreground">Common bank accounts</p>
         {commonAccountLabels.length ? (
           <div className="flex flex-wrap gap-1.5">
             {commonAccountLabels.slice(0, 6).map((label) => (

@@ -113,6 +113,7 @@ export default function FraudIntelligence() {
   const [filters, setFilters] = useState<InvestigationFilters>(defaultFilters);
   const [collapsedLayers, setCollapsedLayers] = useState<number[]>([]);
   const [timelineStep, setTimelineStep] = useState(1);
+  const [bankAccountOnly, setBankAccountOnly] = useState(false);
 
   const totalPatterns = useAnimatedCounter(fraudDNAs.length, 800);
   const avgSimilarity = useAnimatedCounter(92, 1200, 200);
@@ -326,9 +327,91 @@ export default function FraudIntelligence() {
     return hints.sort((a, b) => b.probability - a.probability).slice(0, 8);
   }, [linkedNodeIds, mergedInvestigation.nodes]);
 
+  const graphNodes = useMemo(
+    () =>
+      bankAccountOnly
+        ? mergedInvestigation.nodes.filter((node) => node.nodeType === "bank-account")
+        : mergedInvestigation.nodes,
+    [bankAccountOnly, mergedInvestigation.nodes],
+  );
+
+  const graphNodeIdSet = useMemo(
+    () => new Set(graphNodes.map((node) => node.id)),
+    [graphNodes],
+  );
+
+  const graphEdges = useMemo(
+    () =>
+      mergedInvestigation.edges.filter(
+        (edge) => graphNodeIdSet.has(edge.from) && graphNodeIdSet.has(edge.to),
+      ),
+    [graphNodeIdSet, mergedInvestigation.edges],
+  );
+
   const commonAccountLabels = useMemo(
-    () => mergedInvestigation.commonNodeIds.map((id) => nodeLookup[id]?.label ?? id),
+    () =>
+      mergedInvestigation.commonNodeIds
+        .filter((id) => nodeLookup[id]?.nodeType === "bank-account")
+        .map((id) => nodeLookup[id]?.label ?? id),
     [mergedInvestigation.commonNodeIds, nodeLookup],
+  );
+
+  const commonGraphNodeIds = useMemo(
+    () =>
+      bankAccountOnly
+        ? mergedInvestigation.commonNodeIds.filter((id) => nodeLookup[id]?.nodeType === "bank-account")
+        : mergedInvestigation.commonNodeIds,
+    [bankAccountOnly, mergedInvestigation.commonNodeIds, nodeLookup],
+  );
+
+  const sourceAccountDetails = useMemo(
+    () =>
+      mergedInvestigation.sourceNodeIds.flatMap((id) => {
+        const node = nodeLookup[id];
+        return node ? [node] : [];
+      }),
+    [mergedInvestigation.sourceNodeIds, nodeLookup],
+  );
+
+  const destinationAccountDetails = useMemo(
+    () =>
+      mergedInvestigation.destinationNodeIds.flatMap((id) => {
+        const node = nodeLookup[id];
+        return node ? [node] : [];
+      }),
+    [mergedInvestigation.destinationNodeIds, nodeLookup],
+  );
+
+  const caseLayerLanes = useMemo(
+    () =>
+      mergedInvestigation.selectedCases.map((entry) => {
+        const bankLayerGroups = Array.from({ length: 4 }, (_, index) => {
+          const layer = index + 1;
+          return entry.nodes
+            .filter(
+              (node) =>
+                node.nodeType === "bank-account" &&
+                (layerByNode[node.id] ?? node.defaultLayer) === layer,
+            )
+            .map((node) => node.label);
+        });
+
+        const linkedCount = entry.nodes.filter(
+          (node) =>
+            node.nodeType === "bank-account" &&
+            mergedInvestigation.commonNodeIds.includes(node.id),
+        ).length;
+
+        return {
+          caseId: entry.caseId,
+          title: entry.title,
+          sourceLabel: nodeLookup[entry.sourceNodeId]?.label ?? entry.sourceNodeId,
+          destinationLabels: entry.destinationNodeIds.map((id) => nodeLookup[id]?.label ?? id),
+          bankLayerGroups,
+          linkedCount,
+        };
+      }),
+    [layerByNode, mergedInvestigation.commonNodeIds, mergedInvestigation.selectedCases, nodeLookup],
   );
 
   const sortedPathRisks = useMemo(
@@ -385,9 +468,9 @@ export default function FraudIntelligence() {
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Fraud Intelligence</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Fraud Intelligence and Bank Account Layering</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            AI-powered fraud DNA patterns, threat analysis, and money laundering investigation mapping
+            Law-enforcement-ready workspace for layered account tracing, inter-case spider maps, and source-to-destination money trail analysis
           </p>
         </div>
 
@@ -450,7 +533,7 @@ export default function FraudIntelligence() {
       <div className="flex items-center gap-1 p-1 rounded-lg bg-secondary w-fit">
         {[
           { key: "patterns" as const, label: "DNA Patterns", icon: Fingerprint },
-          { key: "network" as const, label: "Money Trail Map", icon: Network },
+          { key: "network" as const, label: "Bank Layer Spider Map", icon: Network },
           { key: "timeline" as const, label: "Timeline Replay", icon: Clock },
         ].map((tab) => (
           <button
@@ -609,16 +692,30 @@ export default function FraudIntelligence() {
             <div className="glass rounded-xl p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
               <div>
                 <h3 className="text-sm font-semibold flex items-center gap-2">
-                  <Network className="w-4 h-4 text-primary" /> Money Trail Spider Map
+                  <Network className="w-4 h-4 text-primary" /> Bank Account Layering Spider Map
                 </h3>
                 <p className="text-[11px] text-muted-foreground mt-1">
-                  Directional transaction flow with layer detection, case linking, and entity resolution.
+                  Interactive nodal map for how money moved from one bank account to another with inter-case layer linking.
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2 text-[10px]">
                 <span className="px-2 py-1 rounded-full bg-primary/15 text-primary font-semibold">
                   Total Layers: {totalLayers}
                 </span>
+                <span className="px-2 py-1 rounded-full bg-secondary text-muted-foreground font-semibold">
+                  Cases Selected: {selectedCaseIds.length}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setBankAccountOnly((prev) => !prev)}
+                  className={`px-2 py-1 rounded-full font-semibold transition-colors ${
+                    bankAccountOnly
+                      ? "bg-accent/20 text-accent"
+                      : "bg-secondary text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {bankAccountOnly ? "Bank Accounts Only" : "All Nodes"}
+                </button>
                 <span
                   className={`px-2 py-1 rounded-full font-semibold ${
                     investigationMode
@@ -629,6 +726,13 @@ export default function FraudIntelligence() {
                   {investigationMode ? "Deep tracing enabled" : "Limited trace (Bank Mode)"}
                 </span>
               </div>
+            </div>
+
+            <div className="glass rounded-xl p-4 border border-primary/25">
+              <p className="text-xs font-semibold text-primary">Layering Problem Alignment</p>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Integrates different bank accounts into layers, links inter-case spider maps, filters by holder and digital identity details, and exposes source and destination accounts for police investigation.
+              </p>
             </div>
 
             {!investigationMode && (
@@ -663,12 +767,12 @@ export default function FraudIntelligence() {
 
               <div className="xl:col-span-6 space-y-4">
                 <MoneyTrailSpiderMap
-                  nodes={mergedInvestigation.nodes}
-                  edges={mergedInvestigation.edges}
+                  nodes={graphNodes}
+                  edges={graphEdges}
                   layerByNode={layerByNode}
                   collapsedLayers={collapsedLayers}
                   highlightedNodeIds={highlightedNodeIds}
-                  commonNodeIds={mergedInvestigation.commonNodeIds}
+                  commonNodeIds={commonGraphNodeIds}
                   sourceNodeIds={mergedInvestigation.sourceNodeIds}
                   destinationNodeIds={mergedInvestigation.destinationNodeIds}
                   activeStep={graphStep}
@@ -715,6 +819,47 @@ export default function FraudIntelligence() {
                 </div>
 
                 <div className="glass rounded-xl p-4">
+                  <h4 className="text-sm font-semibold flex items-center gap-2 mb-2">
+                    <Network className="w-4 h-4 text-primary" /> Inter-Case Spider Map Lanes
+                  </h4>
+                  <p className="text-[10px] text-muted-foreground mb-3">
+                    Selected cases are lined by bank-account layers L1 to L4 for cross-case comparison.
+                  </p>
+                  <div className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
+                    {caseLayerLanes.map((lane) => (
+                      <div key={lane.caseId} className="rounded-lg border border-border bg-secondary/40 p-2.5">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <p className="text-xs font-semibold">{lane.caseId}</p>
+                            <p className="text-[10px] text-muted-foreground">{lane.title}</p>
+                          </div>
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-accent/20 text-accent font-semibold">
+                            {lane.linkedCount} linked
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground mt-1">
+                          Source: <span className="text-foreground">{lane.sourceLabel}</span>
+                        </p>
+                        <p className="text-[10px] text-muted-foreground">
+                          Destination: <span className="text-foreground">{lane.destinationLabels.join(" | ") || "none"}</span>
+                        </p>
+
+                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-1.5 mt-2">
+                          {lane.bankLayerGroups.map((group, index) => (
+                            <div key={`${lane.caseId}-L${index + 1}`} className="rounded-md border border-border bg-background/60 p-1.5">
+                              <p className="text-[10px] font-semibold text-primary">L{index + 1}</p>
+                              <p className="text-[10px] text-muted-foreground">
+                                {group.length ? group.slice(0, 2).join(" / ") : "none"}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="glass rounded-xl p-4">
                   <h4 className="text-sm font-semibold flex items-center gap-2 mb-3">
                     <Link2 className="w-4 h-4 text-primary" /> Integrated Transactions Module Signals
                   </h4>
@@ -752,8 +897,46 @@ export default function FraudIntelligence() {
 
               <div className="xl:col-span-3 space-y-4">
                 <div className="glass rounded-xl p-4">
+                  <h4 className="text-sm font-semibold mb-3">Source and Destination Accounts</h4>
+
+                  <div className="space-y-2">
+                    <div className="rounded-lg border border-border bg-secondary/40 p-2.5">
+                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Source Accounts</p>
+                      <div className="space-y-1.5 mt-1.5">
+                        {sourceAccountDetails.length ? (
+                          sourceAccountDetails.map((node) => (
+                            <div key={node.id}>
+                              <p className="text-[11px] font-mono">{node.label}</p>
+                              <p className="text-[10px] text-muted-foreground">{node.holderName} | {node.bankName}</p>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-[10px] text-muted-foreground">No source account identified.</p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border border-border bg-secondary/40 p-2.5">
+                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Destination Accounts</p>
+                      <div className="space-y-1.5 mt-1.5">
+                        {destinationAccountDetails.length ? (
+                          destinationAccountDetails.map((node) => (
+                            <div key={node.id}>
+                              <p className="text-[11px] font-mono">{node.label}</p>
+                              <p className="text-[10px] text-muted-foreground">{node.holderName} | {node.bankName}</p>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-[10px] text-muted-foreground">No destination account identified.</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="glass rounded-xl p-4">
                   <h4 className="text-sm font-semibold flex items-center gap-2 mb-3">
-                    <ScanSearch className="w-4 h-4 text-primary" /> AI Layering Detection
+                    <ScanSearch className="w-4 h-4 text-primary" /> AI Layering Detection Labels
                   </h4>
 
                   <div className="space-y-2.5">

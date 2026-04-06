@@ -72,8 +72,8 @@ export default function MoneyFlowTimeline({
     <div className={`glass rounded-xl p-4 space-y-3 ${disabled ? "opacity-60" : ""}`}>
       <div className="flex items-center justify-between gap-2">
         <div>
-          <h3 className="text-sm font-semibold">Money Flow Timeline</h3>
-          <p className="text-[11px] text-muted-foreground mt-0.5">Replay laundering hops step-by-step</p>
+          <h3 className="text-sm font-semibold">Bank Account Money Flow Timeline</h3>
+          <p className="text-[11px] text-muted-foreground mt-0.5">Replay how money moved from one account to another</p>
         </div>
         <button
           type="button"
