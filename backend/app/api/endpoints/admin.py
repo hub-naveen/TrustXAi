@@ -6,6 +6,7 @@ from pymongo.database import Database
 
 from app.core.deps import require_roles
 from app.core.types import InstitutionStatusEnum, RoleEnum
+from app.db.csv_ingest import ingest_csv_datasets
 from app.db.mongo import get_db
 from app.schemas.api import AuditLogRead, InstitutionRead, ThreatFeedRead
 
@@ -77,3 +78,15 @@ def role_distribution(db: Database = Depends(get_db)) -> dict[str, int]:
         )
     )
     return {row["_id"]: row["count"] for row in rows if row.get("_id")}
+
+
+@router.post("/import-csv-data")
+def import_csv_data(
+    db: Database = Depends(get_db),
+    force: bool = Query(default=True),
+) -> dict[str, object]:
+    counts = ingest_csv_datasets(db, force=force)
+    return {
+        "message": "CSV datasets imported to MongoDB",
+        "collection_counts": counts,
+    }

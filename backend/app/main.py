@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.router import api_router
 from app.blockchain.ledger import ensure_genesis_block
 from app.core.config import settings
+from app.db.csv_ingest import ingest_csv_datasets
 from app.db.seed import seed_database
 from app.db.mongo import get_database
 from app.schemas.api import HealthResponse
@@ -15,6 +16,7 @@ from app.schemas.api import HealthResponse
 async def lifespan(_: FastAPI):
     db = get_database()
     seed_database(db)
+    ingest_csv_datasets(db)
     ensure_genesis_block(db)
     yield
 

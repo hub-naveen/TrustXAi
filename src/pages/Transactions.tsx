@@ -1,15 +1,25 @@
-import { useState, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Search, Filter, X, ExternalLink, Download, ChevronLeft, ChevronRight,
-  ArrowUpDown, ArrowUp, ArrowDown, TrendingUp, ShieldAlert, Clock, CheckCircle2,
+  ArrowUpDown, ArrowUp, ArrowDown, TrendingUp, ShieldAlert, Clock, CheckCircle2, RotateCcw,
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell,
 } from "recharts";
 import SectionReveal from "@/components/shared/SectionReveal";
+import { useAuth } from "@/contexts/AuthContext";
 import { transactions, type Transaction } from "@/data/mockData";
 import { useAnimatedCounter } from "@/hooks/useAnimatedCounter";
+import AccountRiskScorePanel from "@/components/transactions/AccountRiskScorePanel";
+import MoneyFlowVisualizer from "@/components/transactions/MoneyFlowVisualizer";
+import { computeAccountRiskScores } from "@/lib/accountRiskScoring";
+import {
+  fetchAllTransactions,
+  fetchTransactionMetrics,
+  type BackendTransaction,
+  type BackendTransactionMetrics,
+} from "@/lib/backendApi";
 import VisualMetricStrip from "@/components/shared/VisualMetricStrip";
 
 const riskColor = (s: number) => s >= 80 ? "text-destructive" : s >= 50 ? "text-warning" : "text-success";
@@ -31,12 +41,37 @@ const extendedTxs: Transaction[] = [
   { id: "TXN-8306", from: "Axis Bank ****7741", to: "Layered Account #1", amount: 340000, currency: "INR", timestamp: "2024-03-15T13:40:00Z", riskScore: 88, status: "blocked", type: "Wire Transfer", institution: "Axis Bank" },
   { id: "TXN-8307", from: "SBI ****4492", to: "Medical Insurance", amount: 67000, currency: "INR", timestamp: "2024-03-15T13:35:00Z", riskScore: 4, status: "approved", type: "Auto-Debit", institution: "SBI" },
   { id: "TXN-8308", from: "HDFC ****8829", to: "Crypto Mixer", amount: 920000, currency: "INR", timestamp: "2024-03-15T13:30:00Z", riskScore: 96, status: "blocked", type: "Online Transfer", institution: "HDFC Bank" },
+  { id: "TXN-8309", from: "Layered Account #1", to: "Offshore Account", amount: 310000, currency: "INR", timestamp: "2024-03-15T13:28:00Z", riskScore: 93, status: "flagged", type: "Layer Transfer", institution: "Axis Bank" },
+  { id: "TXN-8310", from: "Offshore Account", to: "Crypto Mixer", amount: 295000, currency: "INR", timestamp: "2024-03-15T13:24:00Z", riskScore: 95, status: "blocked", type: "Offshore Relay", institution: "External Network" },
+  { id: "TXN-8311", from: "Crypto Mixer", to: "Unknown Wallet 0xF3..a9", amount: 280000, currency: "INR", timestamp: "2024-03-15T13:20:00Z", riskScore: 98, status: "blocked", type: "Crypto Bridge", institution: "External Network" },
+  { id: "TXN-8312", from: "Multiple Recipients", to: "Layered Account #1", amount: 240000, currency: "INR", timestamp: "2024-03-15T13:16:00Z", riskScore: 82, status: "flagged", type: "Bulk Settlement", institution: "Axis Bank" },
 ];
 
 type SortField = "riskScore" | "amount" | "timestamp";
 type SortDir = "asc" | "desc";
 
+const normalizeStatus = (status: string): Transaction["status"] => {
+  if (status === "approved" || status === "blocked" || status === "flagged" || status === "pending") {
+    return status;
+  }
+  return "flagged";
+};
+
+const mapBackendTransaction = (row: BackendTransaction): Transaction => ({
+  id: row.id,
+  from: row.from_account,
+  to: row.to_account,
+  amount: row.amount,
+  currency: row.currency,
+  timestamp: row.timestamp,
+  riskScore: row.risk_score,
+  status: normalizeStatus(row.status),
+  type: row.type,
+  institution: row.institution,
+});
+
 export default function Transactions() {
+  const { authToken } = useAuth();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
@@ -44,11 +79,56 @@ export default function Transactions() {
   const [page, setPage] = useState(1);
   const [sortField, setSortField] = useState<SortField>("timestamp");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [backendRows, setBackendRows] = useState<Transaction[] | null>(null);
+  const [backendMetrics, setBackendMetrics] = useState<BackendTransactionMetrics | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
-  const uniqueTypes = useMemo(() => [...new Set(extendedTxs.map(t => t.type))], []);
+  const syncBackendData = useCallback(async () => {
+    if (!authToken) {
+      setBackendRows(null);
+      setBackendMetrics(null);
+      setSyncMessage("Backend auth token unavailable. Showing local demo dataset.");
+      return;
+    }
+
+    setIsSyncing(true);
+    setSyncMessage("Syncing transactions from MongoDB...");
+
+    try {
+      const [rows, metrics] = await Promise.all([
+        fetchAllTransactions({
+          sortBy: "timestamp",
+          sortDir: "desc",
+          maxRecords: 20000,
+        }),
+        fetchTransactionMetrics(),
+      ]);
+
+      setBackendRows(rows.map(mapBackendTransaction));
+      setBackendMetrics(metrics);
+      setSyncMessage(`Loaded ${rows.length.toLocaleString()} transaction rows from MongoDB.`);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "Failed to fetch backend transactions.";
+      setBackendRows(null);
+      setBackendMetrics(null);
+      setSyncMessage(`${detail} Falling back to local demo dataset.`);
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [authToken]);
+
+  useEffect(() => {
+    void syncBackendData();
+  }, [syncBackendData]);
+
+  const sourceTransactions = backendRows ?? extendedTxs;
+  const accountRiskScores = useMemo(() => computeAccountRiskScores(sourceTransactions), [sourceTransactions]);
+
+  const uniqueTypes = useMemo(() => [...new Set(sourceTransactions.map(t => t.type))], [sourceTransactions]);
 
   const filtered = useMemo(() => {
-    return extendedTxs
+    return sourceTransactions
       .filter((tx) => {
         const matchSearch = tx.id.toLowerCase().includes(search.toLowerCase()) ||
           tx.from.toLowerCase().includes(search.toLowerCase()) ||
@@ -63,10 +143,16 @@ export default function Transactions() {
         if (sortField === "amount") return (a.amount - b.amount) * mul;
         return (new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()) * mul;
       });
-  }, [search, statusFilter, typeFilter, sortField, sortDir]);
+  }, [search, statusFilter, typeFilter, sortField, sortDir, sourceTransactions]);
 
-  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
 
   const toggleSort = (field: SortField) => {
     if (sortField === field) setSortDir(d => d === "asc" ? "desc" : "asc");
@@ -80,10 +166,12 @@ export default function Transactions() {
   };
 
   // Stats
-  const totalBlocked = extendedTxs.filter(t => t.status === "blocked").length;
-  const totalFlagged = extendedTxs.filter(t => t.status === "flagged").length;
-  const avgRisk = Math.round(extendedTxs.reduce((a, t) => a + t.riskScore, 0) / extendedTxs.length);
-  const totalVolume = extendedTxs.reduce((a, t) => a + t.amount, 0);
+  const totalBlocked = backendMetrics?.blocked_count ?? sourceTransactions.filter(t => t.status === "blocked").length;
+  const totalFlagged = backendMetrics?.flagged_count ?? sourceTransactions.filter(t => t.status === "flagged").length;
+  const avgRisk = Math.round(
+    backendMetrics?.average_risk ?? (sourceTransactions.reduce((a, t) => a + t.riskScore, 0) / Math.max(sourceTransactions.length, 1)),
+  );
+  const totalVolume = backendMetrics?.total_volume ?? sourceTransactions.reduce((a, t) => a + t.amount, 0);
 
   const blockedCount = useAnimatedCounter(totalBlocked, 1000);
   const flaggedCount = useAnimatedCounter(totalFlagged, 1000, 100);
@@ -92,14 +180,14 @@ export default function Transactions() {
 
   // Charts data
   const statusData = [
-    { name: "Approved", value: extendedTxs.filter(t => t.status === "approved").length, fill: "hsl(142, 72%, 45%)" },
+    { name: "Approved", value: sourceTransactions.filter(t => t.status === "approved").length, fill: "hsl(142, 72%, 45%)" },
     { name: "Blocked", value: totalBlocked, fill: "hsl(0, 72%, 51%)" },
     { name: "Flagged", value: totalFlagged, fill: "hsl(38, 92%, 50%)" },
   ];
 
   const typeData = uniqueTypes.map(type => ({
     name: type.length > 8 ? type.slice(0, 8) + ".." : type,
-    count: extendedTxs.filter(t => t.type === type).length,
+    count: sourceTransactions.filter(t => t.type === type).length,
   }));
 
   const suspiciousValue = filtered
@@ -150,10 +238,25 @@ export default function Transactions() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Transaction Monitoring</h1>
           <p className="text-sm text-muted-foreground mt-1">Filter, search, and inspect transactions in real-time</p>
+          {syncMessage ? (
+            <p className="text-[11px] text-muted-foreground mt-1.5">
+              Data Source: {backendRows ? "MongoDB" : "Local Fallback"} • {syncMessage}
+            </p>
+          ) : null}
         </div>
-        <button onClick={handleExport} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors">
-          <Download className="w-3.5 h-3.5" /> Export CSV
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => void syncBackendData()}
+            disabled={isSyncing}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-secondary text-xs font-semibold hover:bg-secondary/85 transition-colors disabled:opacity-70"
+          >
+            <RotateCcw className={`w-3.5 h-3.5 ${isSyncing ? "animate-spin" : ""}`} />
+            {isSyncing ? "Syncing" : "Sync MongoDB"}
+          </button>
+          <button onClick={handleExport} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors">
+            <Download className="w-3.5 h-3.5" /> Export CSV
+          </button>
+        </div>
       </div>
 
       <SectionReveal>
@@ -264,6 +367,19 @@ export default function Transactions() {
         </div>
       </SectionReveal>
 
+      <SectionReveal delay={0.08}>
+        <div className="grid xl:grid-cols-5 gap-4">
+          <MoneyFlowVisualizer
+            className="xl:col-span-3"
+            transactions={filtered.length ? filtered : sourceTransactions}
+            accountScores={accountRiskScores}
+          />
+          <div className="xl:col-span-2">
+            <AccountRiskScorePanel scores={accountRiskScores} />
+          </div>
+        </div>
+      </SectionReveal>
+
       {/* Filters */}
       <SectionReveal delay={0.1}>
         <div className="flex flex-col sm:flex-row gap-3">
@@ -350,7 +466,7 @@ export default function Transactions() {
           {/* Pagination */}
           <div className="flex items-center justify-between px-4 py-3 border-t border-border">
             <p className="text-xs text-muted-foreground">
-              Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length}
+              Showing {filtered.length ? (page - 1) * PAGE_SIZE + 1 : 0}–{Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length}
             </p>
             <div className="flex items-center gap-1">
               <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}

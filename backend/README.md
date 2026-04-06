@@ -77,6 +77,18 @@ All seeded users use password: `demo1234`
 - Seeding runs automatically on app startup if no users exist.
 - Viewer role is restricted from admin, fraud-intelligence, federated-learning, and settings APIs by default.
 
+## CSV Data Ingestion
+
+On startup, backend ingests CSV files from `DATA_DIR` (default: `data/`) into MongoDB.
+
+- Raw CSV datasets are loaded into `raw_*` collections.
+- `transactions.csv` is additionally normalized into the `transactions` collection used by `/api/v1/transactions` endpoints.
+- Ingestion is idempotent and only re-runs when source CSV file signatures change.
+
+Admin can force a re-import at runtime:
+
+- `POST /api/v1/admin/import-csv-data?force=true`
+
 ## ML Training Pipelines
 
 The backend now includes dataset-driven training endpoints under `/api/v1/ml`.

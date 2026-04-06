@@ -79,6 +79,46 @@ export interface MlTrainingRun {
   results: MlTrainingResult[];
 }
 
+export type BackendTransactionStatus = "approved" | "blocked" | "flagged" | "pending";
+
+export interface BackendTransaction {
+  id: string;
+  from_account: string;
+  to_account: string;
+  amount: number;
+  currency: string;
+  timestamp: string;
+  risk_score: number;
+  status: BackendTransactionStatus;
+  type: string;
+  institution: string;
+}
+
+export interface BackendTransactionListResponse {
+  items: BackendTransaction[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface BackendTransactionMetrics {
+  total_transactions: number;
+  blocked_count: number;
+  flagged_count: number;
+  average_risk: number;
+  total_volume: number;
+}
+
+export interface TransactionQueryParams {
+  search?: string;
+  status?: BackendTransactionStatus;
+  txType?: string;
+  page?: number;
+  pageSize?: number;
+  sortBy?: "timestamp" | "risk_score" | "amount";
+  sortDir?: "asc" | "desc";
+}
+
 const DEFAULT_API_BASE_URL = "http://127.0.0.1:8000/api/v1";
 const TOKEN_STORAGE_KEY = "tc_token";
 
@@ -198,4 +238,55 @@ export async function triggerMlTrainingPipeline(pipeline: string): Promise<MlTra
     method: "POST",
     auth: true,
   });
+}
+
+function toQueryString(params: TransactionQueryParams): string {
+  const search = new URLSearchParams();
+
+  if (params.search) search.set("search", params.search);
+  if (params.status) search.set("status", params.status);
+  if (params.txType) search.set("tx_type", params.txType);
+  if (typeof params.page === "number") search.set("page", String(params.page));
+  if (typeof params.pageSize === "number") search.set("page_size", String(params.pageSize));
+  if (params.sortBy) search.set("sort_by", params.sortBy);
+  if (params.sortDir) search.set("sort_dir", params.sortDir);
+
+  const encoded = search.toString();
+  return encoded ? `?${encoded}` : "";
+}
+
+export async function fetchTransactions(params: TransactionQueryParams = {}): Promise<BackendTransactionListResponse> {
+  return requestJson<BackendTransactionListResponse>(`/transactions${toQueryString(params)}`, {
+    auth: true,
+  });
+}
+
+export async function fetchAllTransactions(
+  params: Omit<TransactionQueryParams, "page" | "pageSize"> & { maxRecords?: number } = {},
+): Promise<BackendTransaction[]> {
+  const maxRecords = Math.max(1000, params.maxRecords ?? 20000);
+  const pageSize = 1000;
+  const all: BackendTransaction[] = [];
+
+  for (let page = 1; all.length < maxRecords; page += 1) {
+    const response = await fetchTransactions({
+      ...params,
+      page,
+      pageSize,
+    });
+
+    all.push(...response.items);
+
+    const reachedTotal = all.length >= response.total;
+    const emptyPage = response.items.length === 0;
+    if (reachedTotal || emptyPage) {
+      break;
+    }
+  }
+
+  return all.slice(0, maxRecords);
+}
+
+export async function fetchTransactionMetrics(): Promise<BackendTransactionMetrics> {
+  return requestJson<BackendTransactionMetrics>("/transactions/metrics", { auth: true });
 }
