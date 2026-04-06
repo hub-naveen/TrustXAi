@@ -39,6 +39,28 @@ TrustXAi is a modern frontend prototype for cross-institution fraud intelligence
 
 The product UX is built around a high-signal operations console for analysts, admins, and viewers.
 
+## Backend (FastAPI)
+
+This repository now includes a complete backend implementation under `backend/`.
+
+- Framework: FastAPI + MongoDB (PyMongo)
+- Auth: JWT login with role-based access (`admin`, `analyst`, `viewer`)
+- Database: MongoDB with automatic startup seeding (mongomock fallback for local dev)
+- API coverage: auth, role dashboards, transactions, fraud intelligence,
+	blockchain explorer + internal ledger anchoring, federated learning,
+	admin governance, and user settings
+
+Backend quick start:
+
+```bash
+cd backend
+pip install -r requirements.txt
+copy .env.example .env
+uvicorn app.main:app --reload --port 8000
+```
+
+API docs: `http://localhost:8000/docs`
+
 ## Core Modules
 
 - Landing + institutional sign-in experience
