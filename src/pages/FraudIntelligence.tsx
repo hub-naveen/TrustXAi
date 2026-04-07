@@ -112,6 +112,13 @@ const asNumber = (value: unknown, fallback = 0): number => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+const formatAmount = (amount: number) =>
+  new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 0,
+  }).format(amount);
+
 const normalizeStatus = (status: string): Transaction["status"] => {
   if (status === "approved" || status === "blocked" || status === "flagged" || status === "pending") {
     return status;
@@ -854,6 +861,17 @@ export default function FraudIntelligence() {
       .slice(0, 6);
   }, [mergedInvestigation.edges, transactionData]);
 
+  const replaySortedEdges = useMemo(
+    () => [...mergedInvestigation.edges].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()),
+    [mergedInvestigation.edges],
+  );
+
+  const replayActiveEdges = useMemo(() => {
+    if (!replaySortedEdges.length) return [];
+    const max = Math.max(0, Math.min(timelineStep, replaySortedEdges.length));
+    return replaySortedEdges.slice(0, max);
+  }, [replaySortedEdges, timelineStep]);
+
   const aiDetectionSummary = useMemo(
     () =>
       detectionCatalog.map((label) => {
@@ -904,7 +922,7 @@ export default function FraudIntelligence() {
     const txStatusById = new Map(transactionData.map((tx) => [tx.id, tx.status]));
     const grouped = new Map<string, { threats: number; blocked: number }>();
 
-    for (const edge of graphEdges) {
+    for (const edge of replayActiveEdges) {
       const key = new Date(edge.timestamp).toLocaleTimeString([], {
         hour: "2-digit",
         minute: "2-digit",
@@ -925,20 +943,27 @@ export default function FraudIntelligence() {
     }));
 
     return rows.slice(-8);
-  }, [graphEdges, transactionData]);
+  }, [replayActiveEdges, transactionData]);
 
   const recentThreatEvents = useMemo(
     () =>
-      sortedPathRisks.slice(0, 6).map((entry, index) => {
-        const relatedEdge = mergedInvestigation.edges[mergedInvestigation.edges.length - 1 - index];
-        const when = relatedEdge?.timestamp ?? new Date().toISOString();
-        return {
-          time: new Date(when).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-          event: entry.explanation,
-          severity: entry.riskScore >= 90 ? "critical" : entry.riskScore >= 75 ? "high" : "medium",
-        };
-      }),
-    [mergedInvestigation.edges, sortedPathRisks],
+      replayActiveEdges
+        .slice()
+        .reverse()
+        .slice(0, 6)
+        .map((edge) => {
+          const tx = txByRef.get(edge.txRef);
+          const fromLabel = nodeLookup[edge.from]?.label ?? edge.from;
+          const toLabel = nodeLookup[edge.to]?.label ?? edge.to;
+          const riskScore = tx?.riskScore ?? 0;
+
+          return {
+            time: new Date(edge.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+            event: `${fromLabel} -> ${toLabel} | ${formatAmount(edge.amount)} | ${edge.txRef}`,
+            severity: riskScore >= 90 ? "critical" : riskScore >= 75 ? "high" : "medium",
+          };
+        }),
+    [nodeLookup, replayActiveEdges, txByRef],
   );
 
   const updateCases = (caseIds: string[]) => {
